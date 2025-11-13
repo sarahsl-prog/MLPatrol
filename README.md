@@ -306,9 +306,9 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📬 Contact
 
-**Project Maintainer:** [Your Name]  
-**Email:** [Your Email]  
-**Twitter/X:** [@YourHandle]
+**Project Maintainer:** [Sarah Sund-Lussier]  
+**Email:** [ssundlussier@gmail.com]  
+
 
 **Hackathon Links:**
 - [Discord: #agents-mcp-hackathon-winter25](https://discord.gg/fveShqytyh)
