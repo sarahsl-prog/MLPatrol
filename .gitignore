@@ -38,3 +38,5 @@ logs/
 # Gradio
 gradio_queue.db
 flagged/
+
+.claude_cache/
