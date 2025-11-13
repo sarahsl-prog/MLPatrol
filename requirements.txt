@@ -33,3 +33,7 @@ pyyaml==6.0.1
 # Additional LangChain dependencies
 openai>=1.0.0  # For OpenAI models
 anthropic>=0.25.0  # For Claude models
+
+# Testing
+pytest==7.4.0
+pytest-mock==3.11.1
