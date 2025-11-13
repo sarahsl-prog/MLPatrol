@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project specific
+assets/videos/*.mp4
+assets/videos/*.mov
+examples/sample_datasets/*.csv
+examples/sample_datasets/*.parquet
+
+# Logs
+*.log
+logs/
+
+# Gradio
+gradio_queue.db
+flagged/

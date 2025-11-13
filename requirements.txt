@@ -1,0 +1,29 @@
+# MLPatrol Dependencies
+
+# Core
+gradio==6.0.0
+python-dotenv==1.0.0
+
+# Agent Framework
+langchain==0.1.0
+langchain-openai==0.0.5
+langchain-anthropic==0.0.5
+
+# Data Analysis
+numpy==1.26.0
+pandas==2.1.0
+scikit-learn==1.3.0
+scipy==1.11.0
+
+# Visualization
+matplotlib==3.8.0
+seaborn==0.13.0
+plotly==5.18.0
+
+# API & Web
+requests==2.31.0
+httpx==0.25.0
+
+# Utilities
+pydantic==2.5.0
+pyyaml==6.0.1
