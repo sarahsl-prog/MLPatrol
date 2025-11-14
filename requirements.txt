@@ -27,6 +27,9 @@ plotly>=5.18.0
 requests>=2.31.0
 httpx>=0.25.0
 
+# Web Search APIs (optional but recommended)
+tavily-python>=0.3.0  # Tavily AI search API
+
 # Utilities
 pydantic>=2.5.0
 pyyaml>=6.0.1

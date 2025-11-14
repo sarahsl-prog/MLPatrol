@@ -10,6 +10,8 @@ This module provides LangChain-compatible tool wrappers for:
 
 import logging
 import re
+import os
+import time
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -340,11 +342,269 @@ def cve_search_impl(library: str, days_back: int = 90) -> str:
         })
 
 
-def web_search_impl(query: str, max_results: int = 5) -> str:
-    """Search the web for security information.
+def _classify_search_query(query: str) -> str:
+    """Classify query type for smart routing.
 
-    This function performs a web search for ML security information, papers,
-    blog posts, and other resources. It sanitizes queries and handles errors.
+    Args:
+        query: Search query string
+
+    Returns:
+        Query type: 'cve_monitoring' or 'general_security'
+    """
+    cve_patterns = [
+        r'CVE-\d{4}-\d+',           # CVE-2024-1234
+        r'vulnerability.*\d{4}',     # "vulnerabilities 2024"
+        r'latest.*CVE',              # "latest CVE in PyTorch"
+        r'recent.*vulnerability',    # "recent vulnerabilities"
+        r'security.*advisory',       # "security advisory"
+        r'breaking.*threat',         # "breaking threat"
+    ]
+
+    query_lower = query.lower()
+    for pattern in cve_patterns:
+        if re.search(pattern, query_lower, re.IGNORECASE):
+            return "cve_monitoring"
+
+    return "general_security"
+
+
+def _tavily_search(query: str, max_results: int = 5) -> str:
+    """Search using Tavily AI API.
+
+    Tavily is optimized for AI agents and LLM consumption, providing
+    clean, structured results with built-in content extraction.
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of results
+
+    Returns:
+        JSON string with search results
+    """
+    try:
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            logger.error("TAVILY_API_KEY not set")
+            return json.dumps({
+                "status": "error",
+                "provider": "tavily",
+                "message": "Tavily API key not configured. Add TAVILY_API_KEY to .env file."
+            })
+
+        # Get configuration
+        search_depth = os.getenv("TAVILY_SEARCH_DEPTH", "advanced")
+
+        # Sanitize query
+        query_clean = re.sub(r"[^\w\s\-\.\,\?\!]", "", query)[:300]
+
+        logger.info(f"Tavily search: {query_clean} (depth: {search_depth})")
+
+        # Use Tavily via LangChain integration if available
+        try:
+            from langchain_community.tools.tavily_search import TavilySearchResults
+
+            tool = TavilySearchResults(
+                max_results=max_results,
+                search_depth=search_depth,
+                include_answer=True,
+                include_raw_content=False,
+                include_images=False,
+                api_key=api_key
+            )
+
+            start_time = time.time()
+            results = tool.invoke({"query": query_clean})
+            duration_ms = (time.time() - start_time) * 1000
+
+            # Format results
+            formatted_results = {
+                "status": "success",
+                "provider": "tavily",
+                "query": query_clean,
+                "duration_ms": round(duration_ms, 2),
+                "results": results if isinstance(results, list) else [results],
+                "count": len(results) if isinstance(results, list) else 1
+            }
+
+            logger.info(f"Tavily search completed in {duration_ms:.0f}ms")
+            return json.dumps(formatted_results, indent=2)
+
+        except ImportError:
+            # Fallback to direct API call if LangChain tool not available
+            logger.warning("langchain-community not installed, using direct API")
+
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            payload = {
+                "api_key": api_key,
+                "query": query_clean,
+                "search_depth": search_depth,
+                "max_results": max_results,
+                "include_answer": True,
+                "include_raw_content": False
+            }
+
+            start_time = time.time()
+            response = requests.post(
+                "https://api.tavily.com/search",
+                headers=headers,
+                json=payload,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            duration_ms = (time.time() - start_time) * 1000
+
+            data = response.json()
+            data["status"] = "success"
+            data["provider"] = "tavily"
+            data["duration_ms"] = round(duration_ms, 2)
+
+            logger.info(f"Tavily search completed in {duration_ms:.0f}ms")
+            return json.dumps(data, indent=2)
+
+    except requests.exceptions.Timeout:
+        logger.error("Tavily API timeout")
+        return json.dumps({
+            "status": "error",
+            "provider": "tavily",
+            "message": "Search request timed out. Try again later."
+        })
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Tavily API HTTP error: {e.response.status_code}")
+        return json.dumps({
+            "status": "error",
+            "provider": "tavily",
+            "message": f"API error: {e.response.status_code}"
+        })
+    except Exception as e:
+        logger.error(f"Tavily search failed: {e}", exc_info=True)
+        return json.dumps({
+            "status": "error",
+            "provider": "tavily",
+            "message": f"Search failed: {str(e)}"
+        })
+
+
+def _brave_search(query: str, max_results: int = 5) -> str:
+    """Search using Brave Search API.
+
+    Brave provides privacy-focused search with an independent index,
+    excellent for breaking news, CVE monitoring, and technical content.
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of results
+
+    Returns:
+        JSON string with search results
+    """
+    try:
+        api_key = os.getenv("BRAVE_API_KEY")
+        if not api_key:
+            logger.error("BRAVE_API_KEY not set")
+            return json.dumps({
+                "status": "error",
+                "provider": "brave",
+                "message": "Brave API key not configured. Add BRAVE_API_KEY to .env file."
+            })
+
+        # Get configuration
+        freshness = os.getenv("BRAVE_SEARCH_FRESHNESS", "pw")  # past week
+
+        # Sanitize query
+        query_clean = re.sub(r"[^\w\s\-\.\,\?\!]", "", query)[:300]
+
+        logger.info(f"Brave search: {query_clean} (freshness: {freshness})")
+
+        headers = {
+            "Accept": "application/json",
+            "X-Subscription-Token": api_key
+        }
+
+        params = {
+            "q": query_clean,
+            "count": max_results,
+            "search_lang": "en",
+            "safesearch": "moderate",
+            "freshness": freshness
+        }
+
+        start_time = time.time()
+        response = requests.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers=headers,
+            params=params,
+            timeout=30.0
+        )
+        response.raise_for_status()
+        duration_ms = (time.time() - start_time) * 1000
+
+        data = response.json()
+
+        # Extract web results
+        web_results = data.get("web", {}).get("results", [])
+
+        # Format results
+        formatted_results = {
+            "status": "success",
+            "provider": "brave",
+            "query": query_clean,
+            "duration_ms": round(duration_ms, 2),
+            "results": [
+                {
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("description", ""),
+                    "published_date": result.get("age", ""),
+                }
+                for result in web_results[:max_results]
+            ],
+            "count": len(web_results)
+        }
+
+        logger.info(f"Brave search completed in {duration_ms:.0f}ms: {len(web_results)} results")
+        return json.dumps(formatted_results, indent=2)
+
+    except requests.exceptions.Timeout:
+        logger.error("Brave API timeout")
+        return json.dumps({
+            "status": "error",
+            "provider": "brave",
+            "message": "Search request timed out. Try again later."
+        })
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        logger.error(f"Brave API HTTP error: {status_code}")
+
+        error_messages = {
+            401: "Invalid API key. Check BRAVE_API_KEY in .env file.",
+            403: "API key does not have permission.",
+            429: "Rate limit exceeded. Wait a moment and try again.",
+            500: "Brave API server error. Try again later.",
+        }
+
+        return json.dumps({
+            "status": "error",
+            "provider": "brave",
+            "message": error_messages.get(status_code, f"API error: {status_code}")
+        })
+    except Exception as e:
+        logger.error(f"Brave search failed: {e}", exc_info=True)
+        return json.dumps({
+            "status": "error",
+            "provider": "brave",
+            "message": f"Search failed: {str(e)}"
+        })
+
+
+def web_search_impl(query: str, max_results: int = 5) -> str:
+    """Search the web for security information using Tavily and/or Brave.
+
+    This function performs intelligent web search routing between Tavily AI
+    (AI-optimized) and Brave Search (privacy-focused, breaking news) based on
+    query type and configuration.
 
     Args:
         query: Search query string
@@ -358,39 +618,55 @@ def web_search_impl(query: str, max_results: int = 5) -> str:
         >>> results = json.loads(result)
     """
     try:
-        logger.info(f"Performing web search: {query}")
+        # Check if web search is enabled
+        if os.getenv("ENABLE_WEB_SEARCH", "true").lower() != "true":
+            return json.dumps({
+                "status": "disabled",
+                "message": "Web search is disabled. Enable it in .env with ENABLE_WEB_SEARCH=true"
+            })
 
-        # In production, integrate with a real search API (Google Custom Search, Bing, etc.)
-        # For now, we'll provide a structured response format
+        # Check which providers are enabled
+        use_tavily = os.getenv("USE_TAVILY_SEARCH", "false").lower() == "true"
+        use_brave = os.getenv("USE_BRAVE_SEARCH", "false").lower() == "true"
 
-        # Sanitize query
-        query_clean = re.sub(r"[^\w\s-]", "", query)[:200]
+        if not use_tavily and not use_brave:
+            return json.dumps({
+                "status": "disabled",
+                "message": "No web search providers enabled. Set USE_TAVILY_SEARCH or USE_BRAVE_SEARCH to true in .env"
+            })
 
-        # Mock search results structure (replace with actual API call)
-        results = {
-            "status": "success",
-            "query": query_clean,
-            "results": [
-                {
-                    "title": f"Search results for: {query_clean}",
-                    "url": "https://example.com",
-                    "snippet": "In production, this would contain actual web search results from a search API.",
-                    "relevance_score": 0.95
-                }
-            ],
-            "note": "This is a placeholder. Integrate with Google Custom Search API or similar service.",
-            "recommendations": [
-                f"Check official {query_clean} documentation",
-                f"Review security advisories for {query_clean}",
-                "Consult OWASP ML Security guidelines"
-            ]
-        }
+        # Classify query type for routing
+        query_type = _classify_search_query(query)
 
-        logger.info(f"Web search completed: {len(results['results'])} results")
-        return json.dumps(results, indent=2)
+        # Determine which provider to use based on configuration and query type
+        if query_type == "cve_monitoring":
+            # For CVE monitoring, prefer the configured CVE provider
+            preferred = os.getenv("WEB_SEARCH_ROUTE_CVE_TO", "brave").lower()
+        else:
+            # For general security, prefer the configured general provider
+            preferred = os.getenv("WEB_SEARCH_ROUTE_GENERAL_TO", "tavily").lower()
+
+        # Route to preferred provider if enabled, otherwise fallback
+        if preferred == "tavily" and use_tavily:
+            logger.info(f"Routing to Tavily (query type: {query_type})")
+            return _tavily_search(query, max_results)
+        elif preferred == "brave" and use_brave:
+            logger.info(f"Routing to Brave (query type: {query_type})")
+            return _brave_search(query, max_results)
+        elif use_tavily:
+            logger.info(f"Fallback to Tavily (preferred {preferred} not available)")
+            return _tavily_search(query, max_results)
+        elif use_brave:
+            logger.info(f"Fallback to Brave (preferred {preferred} not available)")
+            return _brave_search(query, max_results)
+        else:
+            return json.dumps({
+                "status": "error",
+                "message": "No web search provider available"
+            })
 
     except Exception as e:
-        logger.error(f"Web search failed: {e}", exc_info=True)
+        logger.error(f"Web search routing failed: {e}", exc_info=True)
         return json.dumps({
             "status": "error",
             "message": "Web search unavailable",

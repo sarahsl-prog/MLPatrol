@@ -197,6 +197,72 @@ class AgentState:
             cls._initialize_agent()
         return cls._llm_info
 
+    @staticmethod
+    def get_web_search_info() -> Dict[str, Any]:
+        """Get web search provider configuration information.
+
+        Returns:
+            Dictionary with web search info
+            {
+                'enabled': bool,
+                'providers': List[str],  # ['tavily', 'brave'] or subset
+                'status': 'active' | 'disabled' | 'not_configured',
+                'display_text': str
+            }
+        """
+        enabled = os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"
+
+        if not enabled:
+            return {
+                'enabled': False,
+                'providers': [],
+                'status': 'disabled',
+                'display_text': 'Web Search: Disabled'
+            }
+
+        use_tavily = os.getenv("USE_TAVILY_SEARCH", "false").lower() == "true"
+        use_brave = os.getenv("USE_BRAVE_SEARCH", "false").lower() == "true"
+
+        providers = []
+        if use_tavily:
+            providers.append("Tavily AI")
+        if use_brave:
+            providers.append("Brave Search")
+
+        if not providers:
+            return {
+                'enabled': True,
+                'providers': [],
+                'status': 'not_configured',
+                'display_text': 'Web Search: Not Configured'
+            }
+
+        # Check if API keys are set
+        tavily_key = os.getenv("TAVILY_API_KEY", "")
+        brave_key = os.getenv("BRAVE_API_KEY", "")
+
+        active_providers = []
+        if use_tavily and tavily_key and tavily_key != "your_tavily_api_key_here":
+            active_providers.append("Tavily AI")
+        if use_brave and brave_key and brave_key != "your_brave_api_key_here":
+            active_providers.append("Brave Search")
+
+        if not active_providers:
+            return {
+                'enabled': True,
+                'providers': providers,
+                'status': 'not_configured',
+                'display_text': f"Web Search: {', '.join(providers)} (API keys needed)"
+            }
+
+        provider_text = " + ".join(active_providers)
+        return {
+            'enabled': True,
+            'providers': active_providers,
+            'status': 'active',
+            'display_text': f"Web Search: {provider_text}"
+        }
+
 # ============================================================================
 # Validation and Security Functions
 # ============================================================================
@@ -1032,6 +1098,31 @@ def create_interface() -> gr.Blocks:
             gr.Markdown("""
 <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>🔴 LLM Status:</strong> Not Connected - Check configuration
+</div>
+            """)
+
+        # Display Web Search Status
+        web_search_info = AgentState.get_web_search_info()
+        if web_search_info['status'] == 'active':
+            # Active providers - show in green/blue
+            providers_text = " + ".join([f"<code>{p}</code>" for p in web_search_info['providers']])
+            gr.Markdown(f"""
+<div style="background-color: #f0fdf4; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
+    <strong>🔍 Web Search:</strong> {providers_text} • Privacy-focused
+</div>
+            """)
+        elif web_search_info['status'] == 'not_configured':
+            # Enabled but no API keys
+            gr.Markdown(f"""
+<div style="background-color: #fffbeb; border-left: 4px solid #eab308; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
+    <strong>⚠️ Web Search:</strong> Not configured - Add API keys to .env
+</div>
+            """)
+        elif web_search_info['status'] == 'disabled':
+            # Disabled
+            gr.Markdown("""
+<div style="background-color: #f3f4f6; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
+    <strong>⚫ Web Search:</strong> Disabled
 </div>
             """)
 

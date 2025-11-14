@@ -231,6 +231,31 @@ cp .env.example .env
 #   LOCAL_LLM_MODEL=ollama/llama3.1:8b
 ```
 
+#### Option 3: Enable Web Search (Optional but Recommended) - 🆕
+
+MLPatrol supports real-time web search for security research via Tavily AI and Brave Search.
+
+```bash
+# 1. Get API keys (choose one or both)
+#    - Tavily AI: https://tavily.com (1,000 free credits/month)
+#    - Brave Search: https://brave.com/search/api/ (2,000 free queries/month)
+
+# 2. Edit .env and add:
+ENABLE_WEB_SEARCH=true
+USE_TAVILY_SEARCH=true    # AI-optimized search
+USE_BRAVE_SEARCH=true     # Privacy-focused search
+TAVILY_API_KEY=your_key_here
+BRAVE_API_KEY=your_key_here
+
+# 3. Restart MLPatrol
+```
+
+**Smart Routing:**
+- CVE monitoring queries → Brave (breaking news, real-time)
+- General security Q&A → Tavily (AI-optimized summaries)
+
+See [Web Search Setup Guide](docs/WEB_SEARCH_SETUP.md) for detailed configuration.
+
 ### Run Locally
 ```bash
 python app.py
