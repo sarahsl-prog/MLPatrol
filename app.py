@@ -93,6 +93,7 @@ class AgentState:
     _instance: Optional[MLPatrolAgent] = None
     _initialized: bool = False
     _error: Optional[str] = None
+    _llm_info: Optional[Dict[str, str]] = None
 
     @classmethod
     def get_agent(cls) -> Optional[MLPatrolAgent]:
@@ -111,37 +112,95 @@ class AgentState:
         try:
             logger.info("Initializing MLPatrol agent...")
 
-            # Try Anthropic first, then OpenAI
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            model = "claude-sonnet-4"
+            # Check for local LLM configuration first
+            use_local = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
-            if not api_key:
-                api_key = os.getenv("OPENAI_API_KEY")
-                model = "gpt-4"
+            if use_local:
+                # Local LLM via Ollama
+                model = os.getenv("LOCAL_LLM_MODEL", "ollama/llama3.1:8b")
+                base_url = os.getenv("LOCAL_LLM_URL", "http://localhost:11434")
+                api_key = None
 
-            if not api_key:
-                cls._error = (
-                    "No API key found. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY "
-                    "environment variable."
+                logger.info(f"Using local LLM: {model}")
+
+                cls._instance = create_mlpatrol_agent(
+                    model=model,
+                    base_url=base_url,
+                    verbose=True,
+                    max_iterations=10,
+                    max_execution_time=180
                 )
-                logger.error(cls._error)
-                cls._initialized = True
-                return
 
-            cls._instance = create_mlpatrol_agent(
-                api_key=api_key,
-                model=model,
-                verbose=True,
-                max_iterations=10,
-                max_execution_time=180
-            )
+                logger.info(f"Agent initialized successfully with local model: {model}")
+                cls._error = None
 
-            logger.info(f"Agent initialized successfully with model: {model}")
-            cls._error = None
+                # Store LLM info
+                cls._llm_info = {
+                    'provider': 'local',
+                    'model': model.replace('ollama/', ''),
+                    'type': 'ollama',
+                    'display_name': f"{model.replace('ollama/', '')} (Local - Ollama)",
+                    'url': base_url,
+                    'status': 'connected'
+                }
+
+            else:
+                # Cloud LLMs (existing logic)
+                api_key = os.getenv("ANTHROPIC_API_KEY")
+                model = "claude-sonnet-4-0"  # Alias for latest Claude Sonnet 4
+
+                if not api_key:
+                    api_key = os.getenv("OPENAI_API_KEY")
+                    model = "gpt-4"
+
+                if not api_key:
+                    cls._error = (
+                        "No API key found. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY "
+                        "environment variable, or set USE_LOCAL_LLM=true for local models."
+                    )
+                    logger.error(cls._error)
+                    cls._initialized = True
+                    cls._llm_info = None
+                    return
+
+                cls._instance = create_mlpatrol_agent(
+                    api_key=api_key,
+                    model=model,
+                    verbose=True,
+                    max_iterations=10,
+                    max_execution_time=180
+                )
+
+                logger.info(f"Agent initialized successfully with model: {model}")
+                cls._error = None
+
+                # Store LLM info
+                if "claude" in model.lower():
+                    provider_name = "Anthropic"
+                    llm_type = "anthropic"
+                else:
+                    provider_name = "OpenAI"
+                    llm_type = "openai"
+
+                cls._llm_info = {
+                    'provider': 'cloud',
+                    'model': model,
+                    'type': llm_type,
+                    'display_name': f"{model} (Cloud - {provider_name})",
+                    'status': 'connected'
+                }
 
         except Exception as e:
             cls._error = f"Failed to initialize agent: {str(e)}"
             logger.error(f"Agent initialization failed: {e}", exc_info=True)
+            # Set error status
+            cls._llm_info = {
+                'provider': 'unknown',
+                'model': 'unknown',
+                'type': 'unknown',
+                'display_name': 'Not Connected',
+                'status': 'error'
+            }
         finally:
             cls._initialized = True
 
@@ -151,6 +210,24 @@ class AgentState:
         if not cls._initialized:
             cls._initialize_agent()
         return cls._error
+
+    @classmethod
+    def get_llm_info(cls) -> Optional[Dict[str, str]]:
+        """Get LLM configuration information.
+
+        Returns:
+            Dictionary with LLM info or None if not initialized
+            {
+                'provider': 'cloud' | 'local',
+                'model': str,
+                'type': 'anthropic' | 'openai' | 'ollama',
+                'display_name': str,
+                'status': 'connected' | 'error'
+            }
+        """
+        if not cls._initialized:
+            cls._initialize_agent()
+        return cls._llm_info
 
 # ============================================================================
 # Validation and Security Functions
@@ -824,6 +901,30 @@ def create_interface() -> gr.Blocks:
         # Header
         gr.Markdown(f"# {APP_TITLE}")
         gr.Markdown(APP_DESCRIPTION)
+
+        # Display LLM Status
+        llm_info = AgentState.get_llm_info()
+        if llm_info and llm_info['status'] == 'connected':
+            if llm_info['provider'] == 'local':
+                status_icon = "🔵"  # Blue for local
+                status_color = "#3b82f6"  # Blue
+                privacy_note = " • 100% Private"
+            else:
+                status_icon = "🟢"  # Green for cloud
+                status_color = "#22c55e"  # Green
+                privacy_note = ""
+
+            gr.Markdown(f"""
+<div style="background-color: #f0f9ff; border-left: 4px solid {status_color}; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
+    <strong>{status_icon} LLM Status:</strong> Using <code>{llm_info['display_name']}</code>{privacy_note}
+</div>
+            """)
+        elif llm_info and llm_info['status'] == 'error':
+            gr.Markdown("""
+<div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
+    <strong>🔴 LLM Status:</strong> Not Connected - Check configuration
+</div>
+            """)
 
         # Check agent initialization
         agent_error = AgentState.get_error()

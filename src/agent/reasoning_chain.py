@@ -194,7 +194,7 @@ class MLPatrolAgent:
 
     Example:
         >>> from langchain_anthropic import ChatAnthropic
-        >>> llm = ChatAnthropic(model="claude-sonnet-4")
+        >>> llm = ChatAnthropic(model="claude-sonnet-4-0")
         >>> agent = MLPatrolAgent(llm=llm, verbose=True)
         >>> result = agent.run("Check for numpy CVEs")
         >>> print(result.answer)
@@ -663,7 +663,8 @@ class MLPatrolAgent:
 
 def create_mlpatrol_agent(
     api_key: Optional[str] = None,
-    model: str = "claude-sonnet-4",
+    model: str = "claude-sonnet-4-0",
+    base_url: Optional[str] = None,
     verbose: bool = True,
     **kwargs,
 ) -> MLPatrolAgent:
@@ -673,12 +674,23 @@ def create_mlpatrol_agent(
     agent creation with sensible defaults.
 
     Args:
-        api_key: API key for the LLM provider (Anthropic or OpenAI)
+        api_key: API key for cloud LLM providers (Anthropic/OpenAI). Not needed for Ollama.
         model: Model to use. Options:
-            - "claude-sonnet-4" (default, recommended)
-            - "claude-opus-4"
+            Cloud:
+            - "claude-sonnet-4-0" (default, recommended - alias for latest)
+            - "claude-sonnet-4-20250514" (specific version)
+            - "claude-opus-4-0"
             - "gpt-4"
             - "gpt-4-turbo"
+
+            Local (Ollama):
+            - "ollama/llama3.1:8b" (fast, recommended for local)
+            - "ollama/llama3.1:70b" (high accuracy)
+            - "ollama/mistral-small:3.1" (balanced)
+            - "ollama/qwen2.5:14b" (code analysis)
+            - "ollama/deepseek-r1:7b" (reasoning-optimized)
+
+        base_url: Base URL for local LLM servers (Ollama: http://localhost:11434)
         verbose: Whether to enable verbose logging
         **kwargs: Additional arguments passed to MLPatrolAgent
 
@@ -686,19 +698,28 @@ def create_mlpatrol_agent(
         Configured MLPatrolAgent instance
 
     Raises:
-        ValueError: If model is not supported or API key is missing
+        ValueError: If model is not supported or API key is missing (for cloud models)
 
     Example:
+        Cloud:
         >>> agent = create_mlpatrol_agent(
         ...     api_key="your-api-key",
-        ...     model="claude-sonnet-4",
+        ...     model="claude-sonnet-4-0",
+        ...     verbose=True
+        ... )
+
+        Local (Ollama):
+        >>> agent = create_mlpatrol_agent(
+        ...     model="ollama/llama3.1:8b",
         ...     verbose=True
         ... )
         >>> result = agent.run("Check numpy for CVEs")
     """
     try:
-        # Initialize LLM based on model choice
-        if "claude" in model.lower():
+        model_lower = model.lower()
+
+        # Cloud LLMs
+        if "claude" in model_lower:
             from langchain_anthropic import ChatAnthropic
 
             llm = ChatAnthropic(
@@ -709,7 +730,7 @@ def create_mlpatrol_agent(
             )
             logger.info(f"Initialized Claude LLM: {model}")
 
-        elif "gpt" in model.lower():
+        elif "gpt" in model_lower:
             from langchain_openai import ChatOpenAI
 
             llm = ChatOpenAI(
@@ -720,9 +741,29 @@ def create_mlpatrol_agent(
             )
             logger.info(f"Initialized OpenAI LLM: {model}")
 
+        # Local LLMs (Ollama)
+        elif "ollama" in model_lower:
+            from langchain_ollama import ChatOllama
+
+            # Extract model name (remove "ollama/" prefix if present)
+            ollama_model = model.replace("ollama/", "").replace("Ollama/", "")
+
+            # Use provided base_url or default to localhost
+            ollama_url = base_url or "http://localhost:11434"
+
+            llm = ChatOllama(
+                model=ollama_model,
+                base_url=ollama_url,
+                temperature=0.1,
+                num_ctx=4096,  # Context window (equivalent to max_tokens)
+            )
+            logger.info(f"Initialized Ollama LLM: {ollama_model} at {ollama_url}")
+
         else:
             raise ValueError(
-                f"Unsupported model: {model}. Choose from: claude-sonnet-4, claude-opus-4, gpt-4, gpt-4-turbo"
+                f"Unsupported model: {model}. "
+                f"Cloud: claude-sonnet-4-0, claude-opus-4-0, gpt-4, gpt-4-turbo. "
+                f"Local: ollama/llama3.1:8b, ollama/mistral-small:3.1, etc."
             )
 
         # Create and return agent
@@ -732,8 +773,10 @@ def create_mlpatrol_agent(
     except ImportError as e:
         logger.error(f"Failed to import LLM library: {e}")
         raise ValueError(
-            f"Required library not installed. For Claude, install: pip install langchain-anthropic. "
-            f"For OpenAI, install: pip install langchain-openai"
+            f"Required library not installed. "
+            f"For Claude: pip install langchain-anthropic. "
+            f"For OpenAI: pip install langchain-openai. "
+            f"For Ollama: pip install langchain-ollama"
         )
     except Exception as e:
         logger.error(f"Failed to create agent: {e}", exc_info=True)
@@ -756,21 +799,32 @@ def demo_agent() -> None:
     print("=" * 70)
     print()
 
-    # Get API key from environment
-    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+    # Check for local LLM first
+    use_local = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
-    if not api_key:
-        print("ERROR: Please set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable")
-        return
+    if use_local:
+        model = os.getenv("LOCAL_LLM_MODEL", "ollama/llama3.1:8b")
+        base_url = os.getenv("LOCAL_LLM_URL", "http://localhost:11434")
+        api_key = None
+        print(f"Using local LLM: {model}")
+    else:
+        # Get API key from environment
+        api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+        base_url = None
 
-    # Determine which model to use
-    model = "claude-sonnet-4" if os.getenv("ANTHROPIC_API_KEY") else "gpt-4"
+        if not api_key:
+            print("ERROR: Please set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable")
+            print("OR set USE_LOCAL_LLM=true to use Ollama")
+            return
+
+        # Determine which model to use
+        model = "claude-sonnet-4-0" if os.getenv("ANTHROPIC_API_KEY") else "gpt-4"
 
     print(f"Initializing agent with model: {model}")
     print()
 
     try:
-        agent = create_mlpatrol_agent(api_key=api_key, model=model, verbose=True)
+        agent = create_mlpatrol_agent(api_key=api_key, model=model, base_url=base_url, verbose=True)
 
         # Example queries
         example_queries = [

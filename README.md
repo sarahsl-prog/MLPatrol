@@ -166,7 +166,7 @@ Unlike simple search tools, MLPatrol actively *thinks* through problems:
 **Tech Stack:**
 - **Frontend:** Gradio 5+ (mobile-responsive UI)
 - **Agent:** LangGraph 1.0+ for modern agentic reasoning
-- **LLM:** Claude Sonnet 4 / GPT-4 for analysis
+- **LLM:** Claude Sonnet 4 / GPT-4 / Ollama (local) for analysis
 - **Validation:** Pydantic v2 for robust data validation
 - **Analysis:** NumPy, Pandas, scikit-learn
 - **MCP:** Web search, HuggingFace datasets, Notion
@@ -180,10 +180,16 @@ Unlike simple search tools, MLPatrol actively *thinks* through problems:
 ```bash
 Python 3.10+ (3.11+ recommended for best performance)
 pip or conda
-API keys for LLM (Claude/OpenAI)
 ```
 
+**LLM Options:**
+- **Cloud:** API keys for Claude/OpenAI (recommended for best quality)
+- **Local:** Ollama (100% private, no API costs, runs on your hardware)
+
 ### Installation
+
+#### Option 1: Cloud LLMs (Claude/GPT-4)
+
 ```bash
 # Clone the repository
 git clone https://huggingface.co/spaces/MCP-1st-Birthday/mlpatrol
@@ -194,7 +200,35 @@ pip install -r requirements.txt
 
 # Set up environment variables
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env and add your ANTHROPIC_API_KEY or OPENAI_API_KEY
+```
+
+#### Option 2: Local LLM (Ollama) - 🆕 Privacy-First!
+
+```bash
+# 1. Install Ollama
+# Linux/Mac:
+curl https://ollama.ai/install.sh | sh
+
+# Windows: Download from https://ollama.ai/download
+
+# 2. Pull a model (choose one)
+ollama pull llama3.1:8b      # Recommended: Fast, 8GB RAM
+# OR
+ollama pull llama3.1:70b     # High accuracy, 48GB RAM
+# OR
+ollama pull mistral-small:3.1  # Balanced, 16GB RAM
+
+# 3. Clone and install MLPatrol
+git clone https://huggingface.co/spaces/MCP-1st-Birthday/mlpatrol
+cd mlpatrol
+pip install -r requirements.txt
+
+# 4. Configure for local LLM
+cp .env.example .env
+# Edit .env and set:
+#   USE_LOCAL_LLM=true
+#   LOCAL_LLM_MODEL=ollama/llama3.1:8b
 ```
 
 ### Run Locally
@@ -203,6 +237,8 @@ python app.py
 ```
 
 Visit `http://localhost:7860` to use MLPatrol.
+
+> **💡 Tip:** Local LLMs provide 100% privacy (no data leaves your machine), no API costs, and no rate limits. Perfect for security-sensitive workloads!
 
 ### Usage Examples
 
