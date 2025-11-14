@@ -25,6 +25,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from dotenv import load_dotenv
+import markdown
 
 # Import MLPatrol components
 from src.agent.reasoning_chain import MLPatrolAgent, create_mlpatrol_agent, AgentResult
@@ -112,42 +113,9 @@ class AgentState:
         try:
             logger.info("Initializing MLPatrol agent...")
 
-            # Check for local LLM configuration first
-            use_local = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
-
-            if use_local:
-                # Local LLM via Ollama
-                model = os.getenv("LOCAL_LLM_MODEL", "ollama/llama3.1:8b")
-                base_url = os.getenv("LOCAL_LLM_URL", "http://localhost:11434")
-                api_key = None
-
-                logger.info(f"Using local LLM: {model}")
-
-                cls._instance = create_mlpatrol_agent(
-                    model=model,
-                    base_url=base_url,
-                    verbose=True,
-                    max_iterations=10,
-                    max_execution_time=180
-                )
-
-                logger.info(f"Agent initialized successfully with local model: {model}")
-                cls._error = None
-
-                # Store LLM info
-                cls._llm_info = {
-                    'provider': 'local',
-                    'model': model.replace('ollama/', ''),
-                    'type': 'ollama',
-                    'display_name': f"{model.replace('ollama/', '')} (Local - Ollama)",
-                    'url': base_url,
-                    'status': 'connected'
-                }
-
-            else:
-                # Cloud LLMs (existing logic)
-                api_key = os.getenv("ANTHROPIC_API_KEY")
-                model = "claude-sonnet-4-0"  # Alias for latest Claude Sonnet 4
+            # Try Anthropic first, then OpenAI
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            model = "claude-sonnet-4"
 
                 if not api_key:
                     api_key = os.getenv("OPENAI_API_KEY")
@@ -452,6 +420,38 @@ def format_reasoning_steps(agent_result: AgentResult) -> str:
 
     return "\n".join(html_parts)
 
+def format_agent_answer(answer: str) -> str:
+    """Format agent answer with markdown support and proper HTML structure.
+
+    Args:
+        answer: Raw agent answer text (may contain markdown)
+
+    Returns:
+        HTML string with formatted and styled content
+    """
+    if not answer or not answer.strip():
+        return "<p><em>No response available</em></p>"
+
+    # Convert markdown to HTML with extensions for better formatting
+    html_content = markdown.markdown(
+        answer,
+        extensions=[
+            'fenced_code',  # Support for ```code blocks```
+            'tables',       # Support for markdown tables
+            'nl2br',        # Convert newlines to <br>
+            'sane_lists'    # Better list handling
+        ]
+    )
+
+    # Wrap in a styled container
+    formatted_html = f"""
+    <div class='agent-answer'>
+        {html_content}
+    </div>
+    """
+
+    return formatted_html
+
 def format_cve_results(cves: List[Dict[str, Any]]) -> str:
     """Format CVE results as HTML table.
 
@@ -604,7 +604,7 @@ def handle_cve_search(
             <p><strong>CVEs Found:</strong> {len(cves)}</p>
             <hr>
             <h3>Agent Analysis:</h3>
-            <p>{result.answer}</p>
+            {format_agent_answer(result.answer)}
             <hr>
             {format_cve_results(cves) if cves else "<p><em>No CVEs found in the specified time range.</em></p>"}
         </div>
@@ -697,7 +697,7 @@ def handle_dataset_analysis(
             <p><strong>File:</strong> {Path(file.name).name}</p>
             <hr>
             <h3>Agent Analysis:</h3>
-            <p>{result.answer}</p>
+            {format_agent_answer(result.answer)}
             <hr>
             {format_dataset_analysis(analysis_data) if analysis_data else "<p><em>Analysis data not available</em></p>"}
         </div>
@@ -894,6 +894,115 @@ def create_interface() -> gr.Blocks:
         }
         .analysis-results ul {
             line-height: 1.8;
+        }
+
+        /* Agent Answer Markdown Formatting */
+        .agent-answer {
+            background-color: white;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #e5e7eb;
+            margin: 15px 0;
+            line-height: 1.7;
+            color: #1f2937;
+        }
+        .agent-answer p {
+            margin: 12px 0;
+            font-size: 15px;
+        }
+        .agent-answer h1, .agent-answer h2, .agent-answer h3 {
+            color: #111827;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        .agent-answer h1 {
+            font-size: 24px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 8px;
+        }
+        .agent-answer h2 {
+            font-size: 20px;
+        }
+        .agent-answer h3 {
+            font-size: 18px;
+        }
+        .agent-answer ul, .agent-answer ol {
+            margin: 12px 0;
+            padding-left: 28px;
+        }
+        .agent-answer li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+        .agent-answer code {
+            background-color: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            color: #dc2626;
+        }
+        .agent-answer pre {
+            background-color: #1f2937;
+            color: #f9fafb;
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 16px 0;
+            border: 1px solid #374151;
+        }
+        .agent-answer pre code {
+            background-color: transparent;
+            padding: 0;
+            color: #f9fafb;
+            font-size: 13px;
+        }
+        .agent-answer blockquote {
+            border-left: 4px solid #3b82f6;
+            margin: 16px 0;
+            padding: 12px 20px;
+            background-color: #eff6ff;
+            color: #1e40af;
+        }
+        .agent-answer table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+        .agent-answer th, .agent-answer td {
+            border: 1px solid #e5e7eb;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        .agent-answer th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+            color: #111827;
+        }
+        .agent-answer tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+        .agent-answer strong {
+            font-weight: 600;
+            color: #111827;
+        }
+        .agent-answer em {
+            font-style: italic;
+            color: #4b5563;
+        }
+        .agent-answer a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        .agent-answer a:hover {
+            text-decoration: underline;
+        }
+        .agent-answer hr {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 20px 0;
         }
         """
     ) as interface:
