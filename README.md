@@ -164,9 +164,10 @@ Unlike simple search tools, MLPatrol actively *thinks* through problems:
 ```
 
 **Tech Stack:**
-- **Frontend:** Gradio 6 (mobile-responsive UI)
-- **Agent:** LangChain / LangGraph for reasoning
-- **LLM:** Claude Sonnet / GPT-4 for analysis
+- **Frontend:** Gradio 5+ (mobile-responsive UI)
+- **Agent:** LangGraph 1.0+ for modern agentic reasoning
+- **LLM:** Claude Sonnet 4 / GPT-4 for analysis
+- **Validation:** Pydantic v2 for robust data validation
 - **Analysis:** NumPy, Pandas, scikit-learn
 - **MCP:** Web search, HuggingFace datasets, Notion
 - **APIs:** NVD (National Vulnerability Database)
@@ -177,7 +178,7 @@ Unlike simple search tools, MLPatrol actively *thinks* through problems:
 
 ### Prerequisites
 ```bash
-Python 3.9+
+Python 3.10+ (3.11+ recommended for best performance)
 pip or conda
 API keys for LLM (Claude/OpenAI)
 ```

@@ -16,8 +16,8 @@ from datetime import datetime, timedelta
 import json
 
 import requests
-from langchain.tools import Tool, StructuredTool
-from langchain.pydantic_v1 import BaseModel, Field, validator
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field, field_validator
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -125,7 +125,8 @@ class CVESearchInput(BaseModel):
         le=3650
     )
 
-    @validator("library")
+    @field_validator("library")
+    @classmethod
     def validate_library_name(cls, v):
         """Validate library name format."""
         if not re.match(r"^[a-zA-Z0-9_-]+$", v):
@@ -159,10 +160,11 @@ class DatasetAnalysisInput(BaseModel):
         description="JSON string of dataset data (optional if data_path is provided)"
     )
 
-    @validator("data_json")
-    def validate_data_json(cls, v, values):
+    @field_validator("data_json")
+    @classmethod
+    def validate_data_json(cls, v, info):
         """Ensure at least one data source is provided."""
-        if v is None and values.get("data_path") is None:
+        if v is None and info.data.get("data_path") is None:
             raise ValueError("Either data_path or data_json must be provided")
         return v
 
@@ -181,7 +183,8 @@ class CodeGenerationInput(BaseModel):
         description="CVE ID if generating CVE-specific validation code"
     )
 
-    @validator("cve_id")
+    @field_validator("cve_id")
+    @classmethod
     def validate_cve_id(cls, v):
         """Validate CVE ID format if provided."""
         if v and not re.match(r"CVE-\d{4}-\d{4,7}", v):
@@ -200,7 +203,8 @@ class HuggingFaceSearchInput(BaseModel):
         description="Type of search: 'datasets' or 'models'"
     )
 
-    @validator("search_type")
+    @field_validator("search_type")
+    @classmethod
     def validate_search_type(cls, v):
         """Validate search type."""
         if v not in ["datasets", "models"]:
@@ -799,7 +803,7 @@ def huggingface_search_impl(query: str, search_type: str = "datasets") -> str:
 # ============================================================================
 
 
-def create_mlpatrol_tools() -> List[Tool]:
+def create_mlpatrol_tools() -> List[StructuredTool]:
     """Create all MLPatrol tools for the agent.
 
     Returns:

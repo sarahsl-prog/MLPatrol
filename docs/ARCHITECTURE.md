@@ -218,11 +218,12 @@ Placeholder for Model Context Protocol tools:
   - Interactive charts (Plotly integration)
 
 ### Agent Framework
-- **LangChain 0.3.0**: Agent orchestration
-  - OpenAI function calling format
+- **LangGraph 1.0+**: Modern agent orchestration
+  - Graph-based execution flow
+  - ReAct (Reasoning + Acting) pattern
   - Tool binding and execution
-  - Structured outputs
-  - Error handling and retries
+  - State management and checkpointing
+  - Built on LangChain Core 1.0+
 
 ### LLM Backend
 - **Claude Sonnet 4** (Primary)
@@ -250,7 +251,10 @@ Placeholder for Model Context Protocol tools:
 ### Utilities
 - **requests 2.31.0**: HTTP requests
 - **httpx 0.25.0**: Async HTTP client
-- **pydantic 2.5.0**: Data validation
+- **pydantic 2.5+**: Modern data validation with v2 features
+  - Native field validators
+  - Better performance than v1
+  - Comprehensive type checking
 - **python-dotenv 1.0.0**: Environment variables
 
 ## Data Flow Examples

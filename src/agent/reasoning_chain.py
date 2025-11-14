@@ -1,26 +1,22 @@
 """Agent Reasoning Chain - Main MLPatrol agent implementation.
 
 This module contains the core MLPatrol agent that orchestrates security analysis
-through multi-step reasoning, tool execution, and result synthesis.
+through multi-step reasoning, tool execution, and result synthesis using LangGraph.
 """
 
 import logging
 import time
 import re
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Annotated, TypedDict
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
 
-from langchain.agents import AgentExecutor, create_openai_functions_agent
-from langchain.agents.format_scratchpad.openai_tools import (
-    format_to_openai_tool_messages,
-)
-from langchain.agents.output_parsers.openai_tools import OpenAIToolsAgentOutputParser
+from langgraph.prebuilt import create_react_agent
+from langgraph.graph import StateGraph, END
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.agents import AgentFinish, AgentActionMessageLog
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
+from langchain_core.runnables import RunnableConfig
 
 from .prompts import (
     get_agent_prompt,
@@ -150,6 +146,28 @@ class ToolExecutionError(AgentError):
 
 
 # ============================================================================
+# LangGraph State Definition
+# ============================================================================
+
+
+class AgentState(TypedDict):
+    """State for the LangGraph agent.
+
+    Attributes:
+        messages: Conversation history
+        query_type: Classified query type
+        reasoning_steps: List of reasoning steps
+        tools_used: List of tool names used
+        context: Additional context (files, datasets, etc.)
+    """
+    messages: List[BaseMessage]
+    query_type: Optional[str]
+    reasoning_steps: List[Dict[str, Any]]
+    tools_used: List[str]
+    context: Optional[Dict[str, Any]]
+
+
+# ============================================================================
 # Main Agent Class
 # ============================================================================
 
@@ -157,15 +175,15 @@ class ToolExecutionError(AgentError):
 class MLPatrolAgent:
     """Core reasoning agent for MLPatrol security analysis.
 
-    This agent orchestrates ML security analysis by:
+    This agent orchestrates ML security analysis using LangGraph by:
     - Understanding user queries about ML security
     - Planning multi-step approaches using available tools
     - Executing tools to gather information
     - Synthesizing findings into actionable insights
     - Providing transparent reasoning throughout
 
-    The agent uses LangChain's function calling capabilities with Claude or GPT-4
-    to perform structured reasoning and tool orchestration.
+    The agent uses LangGraph with Claude or GPT-4 for structured reasoning
+    and tool orchestration.
 
     Attributes:
         llm: Language model instance (Claude or GPT-4)
@@ -215,7 +233,7 @@ class MLPatrolAgent:
 
         # State tracking
         self.reasoning_history: List[ReasoningStep] = []
-        self.chat_history: List[Any] = []
+        self.chat_history: List[BaseMessage] = []
         self.current_step = 0
 
         # Setup agent components
@@ -236,42 +254,35 @@ class MLPatrolAgent:
             )
 
     def _setup_agent(self) -> None:
-        """Configure the LangChain agent with prompts and tools.
+        """Configure the LangGraph agent with prompts and tools.
 
-        This creates the agent executor that orchestrates tool usage and reasoning.
+        This creates the ReAct agent that orchestrates tool usage and reasoning.
         """
         try:
-            # Get the main agent prompt
-            prompt = get_agent_prompt()
+            # Get the system prompt
+            system_prompt = get_agent_prompt()
 
-            # Bind tools to LLM (for function calling)
-            llm_with_tools = self.llm.bind_tools(self.tools)
+            # Extract the system message content from the prompt template
+            system_message = None
+            for msg in system_prompt.messages:
+                if hasattr(msg, 'prompt') and hasattr(msg.prompt, 'template'):
+                    if 'MLPatrol' in msg.prompt.template:
+                        system_message = msg.prompt.template
+                        break
 
-            # Create the agent
-            # The agent uses OpenAI function calling format (compatible with Claude too)
-            agent = (
-                RunnablePassthrough.assign(
-                    agent_scratchpad=lambda x: format_to_openai_tool_messages(
-                        x["intermediate_steps"]
-                    )
-                )
-                | prompt
-                | llm_with_tools
-                | OpenAIToolsAgentOutputParser()
-            )
+            if not system_message:
+                # Fallback to a basic system prompt
+                system_message = "You are MLPatrol, an expert AI security agent for ML systems."
 
-            # Create the executor
-            self.agent_executor = AgentExecutor(
-                agent=agent,
+            # Create the ReAct agent using LangGraph's prebuilt function
+            # The prompt parameter accepts a SystemMessage or string
+            self.agent_executor = create_react_agent(
+                model=self.llm,
                 tools=self.tools,
-                verbose=self.verbose,
-                max_iterations=self.max_iterations,
-                max_execution_time=self.max_execution_time,
-                handle_parsing_errors=True,
-                return_intermediate_steps=True,
+                prompt=system_message,  # Use 'prompt' instead of deprecated 'state_modifier'
             )
 
-            logger.info("Agent executor configured successfully")
+            logger.info("LangGraph agent configured successfully")
 
         except Exception as e:
             logger.error(f"Failed to setup agent: {e}", exc_info=True)
@@ -366,41 +377,41 @@ class MLPatrolAgent:
         return True, None
 
     def _extract_reasoning_steps(
-        self, intermediate_steps: List[Tuple[Any, str]]
+        self, messages: List[BaseMessage]
     ) -> List[ReasoningStep]:
-        """Extract reasoning steps from agent's intermediate steps.
+        """Extract reasoning steps from agent's message history.
 
         Args:
-            intermediate_steps: List of (action, observation) tuples from agent
+            messages: List of messages from LangGraph execution
 
         Returns:
             List of ReasoningStep objects
         """
         reasoning_steps = []
+        step_num = 0
 
-        for idx, (action, observation) in enumerate(intermediate_steps, 1):
-            # Extract thought from action
-            thought = ""
-            if hasattr(action, "log"):
-                thought = action.log
+        for msg in messages:
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                # This is a tool call message
+                for tool_call in msg.tool_calls:
+                    step_num += 1
+                    step = ReasoningStep(
+                        step_number=step_num,
+                        thought="",  # LangGraph doesn't expose explicit thoughts
+                        action=tool_call.get('name', 'unknown'),
+                        action_input=tool_call.get('args', {}),
+                        observation="",  # Will be filled from next message
+                        timestamp=time.time(),
+                    )
+                    reasoning_steps.append(step)
 
-            # Extract action and input
-            action_name = action.tool if hasattr(action, "tool") else "unknown"
-            action_input = action.tool_input if hasattr(action, "tool_input") else {}
+            elif hasattr(msg, 'content') and reasoning_steps and not reasoning_steps[-1].observation:
+                # This might be a tool response
+                reasoning_steps[-1].observation = str(msg.content)
 
-            step = ReasoningStep(
-                step_number=idx,
-                thought=thought,
-                action=action_name,
-                action_input=action_input,
-                observation=observation,
-                timestamp=time.time(),
-            )
-
-            reasoning_steps.append(step)
-
-            if self.verbose:
-                logger.info(f"Step {idx}: {action_name}({action_input})")
+        if self.verbose:
+            for step in reasoning_steps:
+                logger.info(f"Step {step.step_number}: {step.action}({step.action_input})")
 
         return reasoning_steps
 
@@ -465,7 +476,7 @@ class MLPatrolAgent:
         self,
         query: str,
         context: Optional[Dict[str, Any]] = None,
-        chat_history: Optional[List[Any]] = None,
+        chat_history: Optional[List[BaseMessage]] = None,
     ) -> AgentResult:
         """Execute the agent on a security query.
 
@@ -473,7 +484,7 @@ class MLPatrolAgent:
         reasoning process:
         1. Validates the query
         2. Classifies the query type
-        3. Executes the agent with tools
+        3. Executes the agent with tools using LangGraph
         4. Extracts reasoning steps
         5. Calculates confidence
         6. Returns structured results
@@ -519,25 +530,36 @@ class MLPatrolAgent:
                 logger.warning(f"Classification failed, using GENERAL_SECURITY: {e}")
                 query_type = QueryType.GENERAL_SECURITY
 
-            # Step 3: Prepare agent input
-            agent_input = {
-                "input": query,
-                "chat_history": chat_history or self.chat_history,
-            }
+            # Step 3: Prepare messages for LangGraph
+            messages = chat_history or self.chat_history
 
-            # Add context if provided
+            # Add context to query if provided
+            full_query = query
             if context:
                 context_str = "\n\nAdditional Context:\n"
                 if "file_path" in context:
                     context_str += f"- File: {context['file_path']}\n"
                 if "dataset" in context:
                     context_str += f"- Dataset provided for analysis\n"
-                agent_input["input"] += context_str
+                full_query += context_str
 
-            # Step 4: Execute agent
-            logger.info("Executing agent...")
+            # Add user message
+            messages_with_query = messages + [HumanMessage(content=full_query)]
+
+            # Step 4: Execute agent using LangGraph
+            logger.info("Executing LangGraph agent...")
             try:
-                result = self.agent_executor.invoke(agent_input)
+                # Run the agent with configuration
+                config = RunnableConfig(
+                    recursion_limit=self.max_iterations,
+                    max_concurrency=1,
+                )
+
+                result = self.agent_executor.invoke(
+                    {"messages": messages_with_query},
+                    config=config
+                )
+
             except Exception as e:
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
                 return AgentResult(
@@ -547,11 +569,18 @@ class MLPatrolAgent:
                     confidence=0.0,
                 )
 
-            # Step 5: Extract answer and reasoning steps
-            answer = result.get("output", "I couldn't generate a response.")
-            intermediate_steps = result.get("intermediate_steps", [])
+            # Step 5: Extract answer and reasoning steps from LangGraph output
+            output_messages = result.get("messages", [])
 
-            reasoning_steps = self._extract_reasoning_steps(intermediate_steps)
+            # Get the final answer (last AI message)
+            answer = "I couldn't generate a response."
+            for msg in reversed(output_messages):
+                if isinstance(msg, AIMessage) and msg.content:
+                    answer = msg.content
+                    break
+
+            # Extract reasoning steps from message history
+            reasoning_steps = self._extract_reasoning_steps(output_messages)
 
             # Step 6: Determine which tools were used
             tools_used = list(set(step.action for step in reasoning_steps))

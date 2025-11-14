@@ -16,11 +16,13 @@ Complete guide for setting up, running, and extending MLPatrol.
 ## Prerequisites
 
 ### Required
-- **Python 3.9+** (3.10 or 3.11 recommended)
+- **Python 3.10+** (3.11 or 3.12 recommended for best performance)
 - **pip** or **conda** for package management
 - **API Key** for LLM provider:
   - **Claude Sonnet 4** (recommended): Get from [console.anthropic.com](https://console.anthropic.com)
   - **GPT-4** (alternative): Get from [platform.openai.com](https://platform.openai.com)
+
+**Note:** Python 3.10+ is required for modern LangGraph and Pydantic v2 features.
 
 ### Optional
 - **Git** for version control
@@ -61,23 +63,27 @@ pip install -r requirements.txt
 ```
 
 This installs:
-- **Gradio 6.0.0**: Web interface
-- **LangChain 0.3.0**: Agent framework
+- **Gradio 5.0+**: Web interface
+- **LangGraph 1.0+**: Modern agent framework (graph-based)
+- **LangChain 1.0+**: Core agent utilities
+- **Pydantic 2.5+**: Fast data validation
 - **NumPy, Pandas, scikit-learn, SciPy**: Data analysis
-- **Plotly 5.18.0**: Interactive visualizations
+- **Plotly 5.18+**: Interactive visualizations
 - **Anthropic/OpenAI SDKs**: LLM providers
-- **Additional utilities**: requests, httpx, pydantic, python-dotenv
+- **Additional utilities**: requests, httpx, python-dotenv
 
 ### 4. Verify Installation
 ```bash
 python -c "import gradio; print(f'Gradio {gradio.__version__}')"
-python -c "import langchain; print(f'LangChain {langchain.__version__}')"
+python -c "import langgraph; print(f'LangGraph {langgraph.__version__}')"
+python -c "import pydantic; print(f'Pydantic {pydantic.__version__}')"
 ```
 
 Expected output:
 ```
-Gradio 6.0.0
-LangChain 0.3.0
+Gradio 5.x.x
+LangGraph 1.x.x
+Pydantic 2.x.x
 ```
 
 ## Configuration
@@ -403,8 +409,10 @@ def new_tool_impl(param: str, option: int = 10) -> str:
         })
 ```
 
-2. **Define input schema:**
+2. **Define input schema (Pydantic v2):**
 ```python
+from pydantic import BaseModel, Field, field_validator
+
 class NewToolInput(BaseModel):
     """Input schema for new tool."""
 
@@ -412,9 +420,17 @@ class NewToolInput(BaseModel):
     option: int = Field(
         default=10,
         description="Description of option",
-        ge=1,
+        ge=1,  # Constraints properly enforced in Pydantic v2
         le=100
     )
+
+    @field_validator("param")
+    @classmethod
+    def validate_param(cls, v):
+        """Validate param using Pydantic v2 syntax."""
+        if not v:
+            raise ValueError("param cannot be empty")
+        return v.strip()
 ```
 
 3. **Add to tool list in `create_mlpatrol_tools()`:**
@@ -544,9 +560,12 @@ python -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.ge
 
 **Solution:**
 ```bash
-pip install langchain-anthropic  # For Claude
+pip install langgraph langchain-anthropic  # For Claude with LangGraph
 # OR
-pip install langchain-openai     # For GPT-4
+pip install langgraph langchain-openai     # For GPT-4 with LangGraph
+
+# Ensure you have the modern stack
+pip install "langchain>=1.0" "langgraph>=1.0" "pydantic>=2.5"
 ```
 
 ### File Upload Fails
