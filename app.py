@@ -113,7 +113,7 @@ class AgentState:
 
             # Try Anthropic first, then OpenAI
             api_key = os.getenv("ANTHROPIC_API_KEY")
-            model = "claude-sonnet-4"
+            model = "claude-sonnet-4-20250514"
 
             if not api_key:
                 api_key = os.getenv("OPENAI_API_KEY")
