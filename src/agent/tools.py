@@ -21,6 +21,10 @@ import requests
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
 import pandas as pd
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +188,10 @@ class CodeGenerationInput(BaseModel):
         default=None,
         description="CVE ID if generating CVE-specific validation code"
     )
+    affected_versions: Optional[List[str]] = Field(
+        default=None,
+        description="List of affected versions to check against"
+    )
 
     @field_validator("cve_id")
     @classmethod
@@ -247,8 +255,7 @@ def cve_search_impl(library: str, days_back: int = 90) -> str:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
 
-        # NVD API endpoint (Note: In production, use actual NVD API with API key)
-        # For this implementation, we'll use a mock response structure
+        # NVD API endpoint
         base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
         params = {
@@ -257,12 +264,21 @@ def cve_search_impl(library: str, days_back: int = 90) -> str:
             "pubEndDate": end_date.strftime("%Y-%m-%dT%H:%M:%S.000"),
         }
 
+        headers = {
+            "User-Agent": "MLPatrol-SecurityAgent/1.0"
+        }
+        
+        # Add API key if available
+        nvd_api_key = os.getenv("NVD_API_KEY")
+        if nvd_api_key:
+            headers["apiKey"] = nvd_api_key
+
         # Add timeout and retry logic
         try:
             response = requests.get(
                 base_url,
                 params=params,
-                headers={"User-Agent": "MLPatrol-SecurityAgent/1.0"},
+                headers=headers,
                 timeout=10
             )
             response.raise_for_status()
@@ -726,6 +742,12 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
         num_rows, num_features = df.shape
         logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
 
+        if np is None:
+            return json.dumps({
+                "status": "error",
+                "message": "Numpy is not installed. Cannot perform dataset analysis."
+            })
+
         # Detect outliers using Z-score method
         from scipy import stats
         outliers = []
@@ -823,7 +845,7 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
         })
 
 
-def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str] = None) -> str:
+def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str] = None, affected_versions: Optional[List[str]] = None) -> str:
     """Generate Python security validation code.
 
     Creates production-ready Python scripts for security validation tasks such as:
@@ -835,6 +857,7 @@ def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str
         purpose: Purpose of the security script
         library: Target library for validation
         cve_id: Optional CVE ID for CVE-specific checks
+        affected_versions: Optional list of affected versions
 
     Returns:
         JSON string containing generated Python code
@@ -898,9 +921,10 @@ def check_vulnerability() -> Tuple[bool, str]:
     print(f"Detected {{package_name}} version: {{version}}")
 
     # Define vulnerable version ranges
-    # TODO: Update these ranges based on actual CVE details
-    vulnerable_versions = []  # Add vulnerable versions here
-
+    vulnerable_versions = {str(affected_versions) if affected_versions else "[]"}
+    
+    # Simple version check (exact match for demonstration)
+    # In production, use packaging.version for proper comparison
     is_vulnerable = version in vulnerable_versions
 
     if is_vulnerable:
@@ -1211,9 +1235,4 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
         return None
 
 
-# Import numpy at module level for dataset analysis
-try:
-    import numpy as np
-except ImportError:
-    logger.warning("numpy not available - some dataset analysis features may be limited")
-    np = None
+
