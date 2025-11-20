@@ -298,45 +298,40 @@ class MLPatrolAgent:
         Returns:
             The classified QueryType
         """
+        logger.info(f"Classifying query: {query[:100]}...")
+
+        # Prepare context string
+        context_str = str(context) if context else "None"
+
         try:
-            logger.info(f"Classifying query: {query[:100]}...")
-            
-            # Prepare context string
-            context_str = str(context) if context else "None"
-            
-            # Get classification prompt
-            prompt = get_classification_prompt()
-            
-            # Create chain
-            chain = prompt | self.llm
-            
-            # Execute chain
-            response = chain.invoke({
+            prompt_value = get_classification_prompt().invoke({
                 "query": query,
                 "context": context_str
             })
-            
-            # Parse response
-            content = response.content.strip().upper()
-            
-            # Map to enum
-            if "CVE_MONITORING" in content:
-                return QueryType.CVE_MONITORING
-            elif "DATASET_ANALYSIS" in content:
-                return QueryType.DATASET_ANALYSIS
-            elif "CODE_GENERATION" in content:
-                return QueryType.CODE_GENERATION
-            elif "GENERAL_SECURITY" in content:
-                return QueryType.GENERAL_SECURITY
-            
-            # Fallback to regex if LLM returns something unexpected
-            logger.warning(f"LLM returned unexpected classification: {content}. Falling back to pattern matching.")
-            return self._analyze_query_regex(query, context)
-
+            response = self.llm.invoke(prompt_value.to_messages())
         except Exception as e:
             logger.error(f"Query classification failed: {e}", exc_info=True)
-            # Fallback to regex on error
-            return self._analyze_query_regex(query, context)
+            raise QueryClassificationError("LLM-based query classification failed") from e
+
+        # Parse response
+        content = getattr(response, "content", response)
+        if isinstance(content, list):
+            content = " ".join(str(chunk) for chunk in content)
+        content = str(content).strip().upper()
+
+        # Map to enum
+        if "CVE_MONITORING" in content:
+            return QueryType.CVE_MONITORING
+        elif "DATASET_ANALYSIS" in content:
+            return QueryType.DATASET_ANALYSIS
+        elif "CODE_GENERATION" in content:
+            return QueryType.CODE_GENERATION
+        elif "GENERAL_SECURITY" in content:
+            return QueryType.GENERAL_SECURITY
+
+        # Fallback to regex if LLM returns something unexpected
+        logger.warning(f"LLM returned unexpected classification: {content}. Falling back to pattern matching.")
+        return self._analyze_query_regex(query, context)
 
     def _analyze_query_regex(self, query: str, context: Optional[Dict[str, Any]] = None) -> QueryType:
         """Fallback regex-based classification."""
@@ -614,16 +609,45 @@ class MLPatrolAgent:
 
             # Step 5: Extract answer and reasoning steps from LangGraph output
             output_messages = result.get("messages", [])
+            
+            # Extract reasoning steps first (needed for fallback answer)
+            reasoning_steps = self._extract_reasoning_steps(output_messages)
 
-            # Get the final answer (last AI message)
+            # Get the final answer (last AI message with actual text content, not just tool calls)
             answer = "I couldn't generate a response."
             for msg in reversed(output_messages):
-                if isinstance(msg, AIMessage) and msg.content:
-                    answer = msg.content
-                    break
-
-            # Extract reasoning steps from message history
-            reasoning_steps = self._extract_reasoning_steps(output_messages)
+                if isinstance(msg, AIMessage):
+                    # Skip messages that only contain tool calls without text content
+                    has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+                    content_str = str(msg.content).strip() if msg.content else ""
+                    
+                    # Check if content looks like tool call JSON (common patterns)
+                    looks_like_tool_call = (
+                        '"name"' in content_str and '"parameters"' in content_str
+                    ) or content_str.startswith('{"name"')
+                    
+                    # Prefer messages with actual text content (not tool call JSON)
+                    if content_str and not looks_like_tool_call and len(content_str) > 20:
+                        answer = content_str
+                        break
+                    # If we only have tool calls, skip this message
+                    elif has_tool_calls and (not content_str or looks_like_tool_call):
+                        continue
+            
+            # If we still don't have a good answer but have tool results, synthesize one
+            if answer == "I couldn't generate a response." or len(answer) < 20:
+                if reasoning_steps:
+                    # Build a summary from tool results
+                    tool_summaries = []
+                    for step in reasoning_steps:
+                        if step.observation and len(step.observation) > 20:
+                            tool_summaries.append(f"Completed {step.action} analysis.")
+                    if tool_summaries:
+                        answer = "I've completed the analysis using the following tools: " + ", ".join(tool_summaries[:3])
+                        if len(reasoning_steps) > 3:
+                            answer += f" (and {len(reasoning_steps) - 3} more steps). Please check the reasoning steps for detailed results."
+                    else:
+                        answer = f"I executed {len(reasoning_steps)} analysis step(s). Please check the reasoning steps below for detailed results."
 
             # Step 6: Determine which tools were used
             tools_used = list(set(step.action for step in reasoning_steps))
