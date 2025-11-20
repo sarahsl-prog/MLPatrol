@@ -289,10 +289,7 @@ class MLPatrolAgent:
             raise AgentError(f"Agent setup failed: {e}")
 
     def analyze_query(self, query: str, context: Optional[Dict[str, Any]] = None) -> QueryType:
-        """Classify the type of security query using pattern matching.
-
-        Uses regex patterns instead of LLM calls to avoid rate limits.
-        This is fast, accurate, and uses 0 tokens.
+        """Classify the type of security query using LLM.
 
         Args:
             query: User's security question
@@ -300,71 +297,96 @@ class MLPatrolAgent:
 
         Returns:
             The classified QueryType
-
-        Example:
-            >>> agent = MLPatrolAgent(llm)
-            >>> query_type = agent.analyze_query("Check numpy for CVEs")
-            >>> print(query_type)
-            QueryType.CVE_MONITORING
         """
         try:
             logger.info(f"Classifying query: {query[:100]}...")
-            query_lower = query.lower()
-
-            # CVE/vulnerability keywords
-            cve_keywords = [
-                "cve", "vulnerability", "vulnerabilities", "security",
-                "exploit", "patch", "nvd", "advisory", "threat"
-            ]
-            library_keywords = [
-                "numpy", "pytorch", "tensorflow", "sklearn", "scikit-learn",
-                "pandas", "scipy", "keras", "xgboost", "lightgbm",
-                "transformers", "huggingface"
-            ]
-
-            # Check for CVE monitoring queries
-            has_cve_keyword = any(kw in query_lower for kw in cve_keywords)
-            has_library = any(lib in query_lower for lib in library_keywords)
-
-            if has_cve_keyword and has_library:
-                logger.info("Query classified as CVE_MONITORING (pattern match)")
+            
+            # Prepare context string
+            context_str = str(context) if context else "None"
+            
+            # Get classification prompt
+            prompt = get_classification_prompt()
+            
+            # Create chain
+            chain = prompt | self.llm
+            
+            # Execute chain
+            response = chain.invoke({
+                "query": query,
+                "context": context_str
+            })
+            
+            # Parse response
+            content = response.content.strip().upper()
+            
+            # Map to enum
+            if "CVE_MONITORING" in content:
                 return QueryType.CVE_MONITORING
-
-            # Dataset analysis keywords
-            dataset_keywords = [
-                "dataset", "data", "poisoning", "bias", "outlier",
-                "csv", "analyze", "statistical", "quality", "distribution"
-            ]
-
-            has_dataset_keyword = any(kw in query_lower for kw in dataset_keywords)
-            has_file_context = context and ("file_path" in context or "dataset" in context)
-
-            if has_dataset_keyword or has_file_context:
-                logger.info("Query classified as DATASET_ANALYSIS (pattern match)")
+            elif "DATASET_ANALYSIS" in content:
                 return QueryType.DATASET_ANALYSIS
-
-            # Code generation keywords
-            code_keywords = [
-                "generate", "code", "script", "validation", "check",
-                "create", "write", "validation code", "security check"
-            ]
-            security_keywords = ["security", "validate", "cve", "verify", "test"]
-
-            has_code_keyword = any(kw in query_lower for kw in code_keywords)
-            has_security_keyword = any(kw in query_lower for kw in security_keywords)
-
-            if has_code_keyword and has_security_keyword:
-                logger.info("Query classified as CODE_GENERATION (pattern match)")
+            elif "CODE_GENERATION" in content:
                 return QueryType.CODE_GENERATION
-
-            # Default to GENERAL_SECURITY
-            logger.info("Query classified as GENERAL_SECURITY (default)")
-            return QueryType.GENERAL_SECURITY
+            elif "GENERAL_SECURITY" in content:
+                return QueryType.GENERAL_SECURITY
+            
+            # Fallback to regex if LLM returns something unexpected
+            logger.warning(f"LLM returned unexpected classification: {content}. Falling back to pattern matching.")
+            return self._analyze_query_regex(query, context)
 
         except Exception as e:
             logger.error(f"Query classification failed: {e}", exc_info=True)
-            # Fallback to GENERAL_SECURITY on any error
-            return QueryType.GENERAL_SECURITY
+            # Fallback to regex on error
+            return self._analyze_query_regex(query, context)
+
+    def _analyze_query_regex(self, query: str, context: Optional[Dict[str, Any]] = None) -> QueryType:
+        """Fallback regex-based classification."""
+        query_lower = query.lower()
+
+        # CVE/vulnerability keywords
+        cve_keywords = [
+            "cve", "vulnerability", "vulnerabilities", "security",
+            "exploit", "patch", "nvd", "advisory", "threat"
+        ]
+        library_keywords = [
+            "numpy", "pytorch", "tensorflow", "sklearn", "scikit-learn",
+            "pandas", "scipy", "keras", "xgboost", "lightgbm",
+            "transformers", "huggingface"
+        ]
+
+        # Check for CVE monitoring queries
+        has_cve_keyword = any(kw in query_lower for kw in cve_keywords)
+        has_library = any(lib in query_lower for lib in library_keywords)
+
+        if has_cve_keyword and has_library:
+            return QueryType.CVE_MONITORING
+
+        # Dataset analysis keywords
+        dataset_keywords = [
+            "dataset", "data", "poisoning", "bias", "outlier",
+            "csv", "analyze", "statistical", "quality", "distribution"
+        ]
+
+        has_dataset_keyword = any(kw in query_lower for kw in dataset_keywords)
+        has_file_context = context and ("file_path" in context or "dataset" in context)
+
+        if has_dataset_keyword or has_file_context:
+            return QueryType.DATASET_ANALYSIS
+
+        # Code generation keywords
+        code_keywords = [
+            "generate", "code", "script", "validation", "check",
+            "create", "write", "validation code", "security check"
+        ]
+        security_keywords = ["security", "validate", "cve", "verify", "test"]
+
+        has_code_keyword = any(kw in query_lower for kw in code_keywords)
+        has_security_keyword = any(kw in query_lower for kw in security_keywords)
+
+        if has_code_keyword and has_security_keyword:
+            return QueryType.CODE_GENERATION
+
+        # Default to GENERAL_SECURITY
+        return QueryType.GENERAL_SECURITY
 
     def _validate_query(self, query: str) -> Tuple[bool, Optional[str]]:
         """Validate user query for security and format issues.
