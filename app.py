@@ -55,6 +55,7 @@ APP_DESCRIPTION = """
 It helps you monitor vulnerabilities, analyze datasets for security issues, and generate
 validation code - all powered by advanced AI reasoning.
 """
+LOGO_PATH = Path("mlpatrol_logo.png")
 
 SUPPORTED_LIBRARIES = [
     "numpy",
@@ -977,6 +978,15 @@ def create_interface() -> gr.Blocks:
             border-radius: 8px;
             margin: 10px 0;
         }
+        .reasoning-steps {
+            max-height: 600px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background-color: #f9fafb;
+        }
         .reasoning-step {
             background-color: white;
             padding: 15px;
@@ -993,6 +1003,8 @@ def create_interface() -> gr.Blocks:
             padding: 10px;
             border-radius: 4px;
             overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
         }
         .analysis-results h3 {
             color: #1f2937;
@@ -1114,6 +1126,14 @@ def create_interface() -> gr.Blocks:
     ) as interface:
 
         # Header
+        if LOGO_PATH.exists():
+            gr.Image(
+                value=str(LOGO_PATH),
+                show_label=False,
+                height=140,
+                interactive=False,
+                elem_id="mlpatrol-logo"
+            )
         gr.Markdown(f"# {APP_TITLE}")
         gr.Markdown(APP_DESCRIPTION)
 

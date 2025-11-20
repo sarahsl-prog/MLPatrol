@@ -1,6 +1,6 @@
-# Test import
-from langchain.agents import AgentExecutor, create_openai_functions_agent
-from langchain.tools import Tool
+# Smoke-test key LangChain / LangGraph entry points that MLPatrol relies on.
+from langchain_core.tools import StructuredTool
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.prebuilt import create_react_agent
 
-print("✅ LangChain agents imported successfully!")
+print("✅ LangChain / LangGraph imports succeeded!")

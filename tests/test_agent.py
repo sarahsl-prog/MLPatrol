@@ -42,21 +42,21 @@ def mock_llm():
 @pytest.fixture
 def mock_tools():
     """Create real Tool objects for testing."""
-    from langchain.tools import Tool
+    from langchain_core.tools import StructuredTool
 
-    tool1 = Tool(
+    tool1 = StructuredTool.from_function(
         name="cve_search",
         description="Search for CVEs",
         func=lambda library, days_back=90: '{"status": "success"}'
     )
 
-    tool2 = Tool(
+    tool2 = StructuredTool.from_function(
         name="web_search",
         description="Search the web",
         func=lambda query, max_results=5: '{"status": "success"}'
     )
 
-    tool3 = Tool(
+    tool3 = StructuredTool.from_function(
         name="analyze_dataset",
         description="Analyze dataset security",
         func=lambda data_path=None, data_json=None: '{"status": "success"}'

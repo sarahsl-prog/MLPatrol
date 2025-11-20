@@ -14,7 +14,6 @@ import os
 import time
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 import json
 
 import requests
@@ -23,8 +22,16 @@ from pydantic import BaseModel, Field, field_validator
 import pandas as pd
 try:
     import numpy as np
-except ImportError:
+except ImportError:  # pragma: no cover - handled via dataset tests
     np = None
+
+from src.dataset.bias_analyzer import analyze_bias
+from src.dataset.poisoning_detector import detect_poisoning
+from src.security.code_generator import (
+    build_cve_security_script,
+    build_general_security_script,
+)
+from src.security.cve_monitor import CVEMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -250,105 +257,32 @@ def cve_search_impl(library: str, days_back: int = 90) -> str:
     """
     try:
         logger.info(f"Searching for CVEs in {library} from last {days_back} days")
+        monitor = CVEMonitor(api_key=os.getenv("NVD_API_KEY"))
+        search_result = monitor.search_recent(library, days_back)
 
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
-
-        # NVD API endpoint
-        base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-
-        params = {
-            "keywordSearch": library,
-            "pubStartDate": start_date.strftime("%Y-%m-%dT%H:%M:%S.000"),
-            "pubEndDate": end_date.strftime("%Y-%m-%dT%H:%M:%S.000"),
+        payload = {
+            "status": "success",
+            **search_result,
         }
 
-        headers = {
-            "User-Agent": "MLPatrol-SecurityAgent/1.0"
-        }
-        
-        # Add API key if available
-        nvd_api_key = os.getenv("NVD_API_KEY")
-        if nvd_api_key:
-            headers["apiKey"] = nvd_api_key
+        logger.info("Found %s CVEs for %s", payload["cve_count"], library)
+        return json.dumps(payload, indent=2)
 
-        # Add timeout and retry logic
-        try:
-            response = requests.get(
-                base_url,
-                params=params,
-                headers=headers,
-                timeout=10
-            )
-            response.raise_for_status()
-
-            # Parse NVD response
-            nvd_data = response.json()
-
-            # Convert to our CVEResult format
-            cves = []
-            if "vulnerabilities" in nvd_data:
-                for vuln in nvd_data["vulnerabilities"]:
-                    cve = vuln.get("cve", {})
-                    cve_id = cve.get("id", "UNKNOWN")
-
-                    # Extract CVSS score
-                    cvss_score = 0.0
-                    severity = "UNKNOWN"
-                    metrics = cve.get("metrics", {})
-                    if "cvssMetricV31" in metrics:
-                        cvss_data = metrics["cvssMetricV31"][0]["cvssData"]
-                        cvss_score = cvss_data.get("baseScore", 0.0)
-                        severity = cvss_data.get("baseSeverity", "UNKNOWN")
-
-                    # Extract description
-                    descriptions = cve.get("descriptions", [])
-                    description = descriptions[0].get("value", "No description") if descriptions else "No description"
-
-                    # Extract references
-                    references = [ref.get("url") for ref in cve.get("references", [])]
-
-                    cve_result = CVEResult(
-                        cve_id=cve_id,
-                        description=description[:200] + "..." if len(description) > 200 else description,
-                        cvss_score=cvss_score,
-                        severity=severity,
-                        affected_versions=["See references for details"],
-                        published_date=cve.get("published", "Unknown"),
-                        references=references[:3],  # Limit to 3 references
-                        library=library
-                    )
-                    cves.append(cve_result.to_dict())
-
-            result = {
-                "status": "success",
-                "library": library,
-                "days_searched": days_back,
-                "cve_count": len(cves),
-                "cves": cves
-            }
-
-            logger.info(f"Found {len(cves)} CVEs for {library}")
-            return json.dumps(result, indent=2)
-
-        except requests.Timeout:
-            logger.warning(f"CVE search timed out for {library}")
-            return json.dumps({
-                "status": "timeout",
-                "message": f"CVE search timed out for {library}. Try again or check with fewer days_back.",
-                "library": library
-            })
-        except requests.RequestException as e:
-            logger.error(f"CVE search failed: {e}")
-            # Provide a graceful fallback
-            return json.dumps({
-                "status": "error",
-                "message": f"CVE database temporarily unavailable. Recommendation: Check {library} security advisories manually at https://nvd.nist.gov",
-                "library": library,
-                "error": str(e)
-            })
-
+    except requests.Timeout:
+        logger.warning("CVE search timed out for %s", library)
+        return json.dumps({
+            "status": "timeout",
+            "message": f"CVE search timed out for {library}. Try again or check with fewer days_back.",
+            "library": library
+        })
+    except requests.RequestException as e:
+        logger.error("CVE search failed: %s", e)
+        return json.dumps({
+            "status": "error",
+            "message": f"CVE database temporarily unavailable. Recommendation: Check {library} advisories at https://nvd.nist.gov",
+            "library": library,
+            "error": str(e)
+        })
     except Exception as e:
         logger.error(f"Unexpected error in cve_search: {e}", exc_info=True)
         return json.dumps({
@@ -738,64 +672,27 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
                 "message": "No data source provided"
             })
 
-        # Basic statistics
-        num_rows, num_features = df.shape
-        logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
-
         if np is None:
             return json.dumps({
                 "status": "error",
                 "message": "Numpy is not installed. Cannot perform dataset analysis."
             })
 
-        # Detect outliers using Z-score method
-        from scipy import stats
-        outliers = []
-        numeric_cols = df.select_dtypes(include=['number']).columns
+        # Basic statistics
+        num_rows, num_features = df.shape
+        logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
 
-        for col in numeric_cols:
-            z_scores = np.abs(stats.zscore(df[col].dropna()))
-            outlier_indices = np.where(z_scores > 3)[0].tolist()
-            outliers.extend(outlier_indices)
+        bias_report = analyze_bias(df)
+        poisoning_report = detect_poisoning(df)
 
-        outliers = list(set(outliers))  # Remove duplicates
+        outliers = poisoning_report.outlier_indices
         outlier_count = len(outliers)
+        outlier_ratio = poisoning_report.outlier_ratio
 
-        # Analyze class distribution (assume last column or 'label' column is target)
-        class_col = None
-        if 'label' in df.columns:
-            class_col = 'label'
-        elif 'target' in df.columns:
-            class_col = 'target'
-        elif len(df.columns) > 0:
-            class_col = df.columns[-1]
-
-        class_distribution = {}
-        if class_col:
-            value_counts = df[class_col].value_counts()
-            total = len(df)
-            class_distribution = {
-                str(k): float(v / total) for k, v in value_counts.items()
-            }
-
-        # Assess bias (class imbalance)
-        bias_score = 0.0
-        if class_distribution:
-            proportions = list(class_distribution.values())
-            if proportions:
-                max_prop = max(proportions)
-                min_prop = min(proportions)
-                bias_score = max_prop - min_prop  # 0 = balanced, 1 = completely imbalanced
-
-        # Assess suspected poisoning
-        suspected_poisoning = False
-        poisoning_confidence = 0.0
-
-        # Simple heuristics for poisoning detection
-        outlier_ratio = outlier_count / num_rows if num_rows > 0 else 0
-        if outlier_ratio > 0.05:  # More than 5% outliers
-            suspected_poisoning = True
-            poisoning_confidence = min(outlier_ratio * 10, 1.0)
+        class_distribution = bias_report.class_distribution
+        bias_score = bias_report.imbalance_score
+        suspected_poisoning = poisoning_report.suspected_poisoning
+        poisoning_confidence = poisoning_report.confidence
 
         # Calculate quality score (0-10)
         quality_score = 10.0
@@ -815,6 +712,7 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
             recommendations.append("Implement robust training techniques (label smoothing, outlier removal)")
         if quality_score < 7.0:
             recommendations.append("Consider data cleaning and validation before training")
+        recommendations.extend(bias_report.warnings)
 
         result = DatasetAnalysisResult(
             num_rows=num_rows,
@@ -872,166 +770,12 @@ def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str
     try:
         logger.info(f"Generating security code for {library}: {purpose}")
 
-        # Template for CVE checking script
-        if cve_id or "cve" in purpose.lower():
-            code = f'''#!/usr/bin/env python3
-"""
-Security Validation Script: {purpose}
-Target Library: {library}
-{f"CVE: {cve_id}" if cve_id else ""}
-
-Generated by MLPatrol Security Agent
-DO NOT execute this script without reviewing it first!
-"""
-
-import sys
-import subprocess
-from typing import Tuple, Optional
-import importlib.metadata
-
-
-def get_package_version(package_name: str) -> Optional[str]:
-    """Get the installed version of a package.
-
-    Args:
-        package_name: Name of the package to check
-
-    Returns:
-        Version string or None if package not found
-    """
-    try:
-        version = importlib.metadata.version(package_name)
-        return version
-    except importlib.metadata.PackageNotFoundError:
-        return None
-
-
-def check_vulnerability() -> Tuple[bool, str]:
-    """Check if the system is vulnerable to {cve_id if cve_id else "known CVEs"}.
-
-    Returns:
-        Tuple of (is_vulnerable, message)
-    """
-    package_name = "{library}"
-    version = get_package_version(package_name)
-
-    if version is None:
-        return False, f"{{package_name}} is not installed"
-
-    print(f"Detected {{package_name}} version: {{version}}")
-
-    # Define vulnerable version ranges
-    vulnerable_versions = {str(affected_versions) if affected_versions else "[]"}
-    
-    # Simple version check (exact match for demonstration)
-    # In production, use packaging.version for proper comparison
-    is_vulnerable = version in vulnerable_versions
-
-    if is_vulnerable:
-        message = f"VULNERABLE: {{package_name}} {{version}} is affected by {cve_id if cve_id else "known vulnerabilities"}"
-    else:
-        message = f"SAFE: {{package_name}} {{version}} is not in the known vulnerable range"
-
-    return is_vulnerable, message
-
-
-def main() -> int:
-    """Main execution function.
-
-    Returns:
-        Exit code (0 = safe, 1 = vulnerable, 2 = error)
-    """
-    print("=" * 70)
-    print(f"MLPatrol Security Check: {library}")
-    print(f"Purpose: {purpose}")
-    {f'print(f"CVE: {cve_id}")' if cve_id else ""}
-    print("=" * 70)
-    print()
-
-    try:
-        is_vulnerable, message = check_vulnerability()
-
-        print(message)
-        print()
-
-        if is_vulnerable:
-            print("REMEDIATION STEPS:")
-            print(f"1. Upgrade {library} to the latest version:")
-            print(f"   pip install --upgrade {library}")
-            print(f"2. Check {library} security advisories")
-            print("3. Test your application after upgrading")
-            return 1
+        if cve_id or "cve" in (purpose or "").lower():
+            code = build_cve_security_script(purpose, library, cve_id, affected_versions)
         else:
-            print("No known vulnerabilities detected.")
-            print("Continue monitoring security advisories.")
-            return 0
+            code = build_general_security_script(purpose, library, affected_versions)
 
-    except Exception as e:
-        print(f"ERROR: {{e}}", file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-        else:
-            # General validation script
-            code = f'''#!/usr/bin/env python3
-"""
-Security Validation Script: {purpose}
-Target Library: {library}
-
-Generated by MLPatrol Security Agent
-"""
-
-import sys
-from typing import Optional
-import importlib.metadata
-
-
-def validate_security() -> bool:
-    """Perform security validation for {library}.
-
-    Returns:
-        True if validation passes, False otherwise
-    """
-    print(f"Validating security for: {library}")
-    print(f"Purpose: {purpose}")
-
-    # Add your validation logic here
-    # This is a template - customize based on specific requirements
-
-    try:
-        version = importlib.metadata.version("{library}")
-        print(f"Version detected: {{version}}")
-
-        # Add specific checks here
-        print("✓ Basic checks passed")
-
-        return True
-    except Exception as e:
-        print(f"✗ Validation failed: {{e}}")
-        return False
-
-
-def main() -> int:
-    """Main execution function."""
-    print("=" * 70)
-    print("MLPatrol Security Validation")
-    print("=" * 70)
-    print()
-
-    if validate_security():
-        print("\\nValidation PASSED")
-        return 0
-    else:
-        print("\\nValidation FAILED")
-        return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
+        sanitized_name = library.replace("-", "_")
 
         result = {
             "status": "success",
@@ -1039,8 +783,8 @@ if __name__ == "__main__":
             "library": library,
             "cve_id": cve_id,
             "code": code,
-            "filename": f"mlpatrol_check_{library.replace('-', '_')}.py",
-            "usage": f"python mlpatrol_check_{library.replace('-', '_')}.py"
+            "filename": f"mlpatrol_check_{sanitized_name}.py",
+            "usage": f"python mlpatrol_check_{sanitized_name}.py"
         }
 
         logger.info("Security code generated successfully")
