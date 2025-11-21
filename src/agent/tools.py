@@ -332,13 +332,21 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
         JSON string with search results
     """
     try:
-        api_key = os.getenv("TAVILY_API_KEY")
-        if not api_key:
-            logger.error("TAVILY_API_KEY not set")
+        api_key = os.getenv("TAVILY_API_KEY", "")
+        # Check for missing or placeholder API key
+        if not api_key or api_key == "your_tavily_api_key_here":
+            logger.error("TAVILY_API_KEY not configured")
             return json.dumps({
                 "status": "error",
                 "provider": "tavily",
-                "message": "Tavily API key not configured. Add TAVILY_API_KEY to .env file."
+                "message": "Tavily API key not configured. Get your API key at https://tavily.com and add TAVILY_API_KEY to .env file."
+            })
+        if len(api_key) < 20:
+            logger.error("TAVILY_API_KEY appears invalid (too short)")
+            return json.dumps({
+                "status": "error",
+                "provider": "tavily",
+                "message": "Tavily API key appears invalid. Please check your TAVILY_API_KEY in .env file."
             })
 
         # Get configuration
@@ -451,13 +459,21 @@ def _brave_search(query: str, max_results: int = 5) -> str:
         JSON string with search results
     """
     try:
-        api_key = os.getenv("BRAVE_API_KEY")
-        if not api_key:
-            logger.error("BRAVE_API_KEY not set")
+        api_key = os.getenv("BRAVE_API_KEY", "")
+        # Check for missing or placeholder API key
+        if not api_key or api_key == "your_brave_api_key_here":
+            logger.error("BRAVE_API_KEY not configured")
             return json.dumps({
                 "status": "error",
                 "provider": "brave",
-                "message": "Brave API key not configured. Add BRAVE_API_KEY to .env file."
+                "message": "Brave API key not configured. Get your API key at https://brave.com/search/api/ and add BRAVE_API_KEY to .env file."
+            })
+        if len(api_key) < 20:
+            logger.error("BRAVE_API_KEY appears invalid (too short)")
+            return json.dumps({
+                "status": "error",
+                "provider": "brave",
+                "message": "Brave API key appears invalid. Please check your BRAVE_API_KEY in .env file."
             })
 
         # Get configuration
@@ -678,21 +694,56 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
                 "message": "Numpy is not installed. Cannot perform dataset analysis."
             })
 
-        # Basic statistics
+        # Validate dataset
         num_rows, num_features = df.shape
+        if num_rows < 10:
+            return json.dumps({
+                "status": "error",
+                "message": f"Dataset too small for analysis. Need at least 10 rows, got {num_rows}"
+            })
+        if num_features < 1:
+            return json.dumps({
+                "status": "error",
+                "message": "Dataset has no features to analyze"
+            })
+
         logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
 
-        bias_report = analyze_bias(df)
-        poisoning_report = detect_poisoning(df)
+        # Run bias analysis with error handling
+        try:
+            bias_report = analyze_bias(df)
+            class_distribution = bias_report.class_distribution
+            bias_score = bias_report.imbalance_score
+        except Exception as e:
+            logger.warning(f"Bias analysis failed: {e}", exc_info=True)
+            # Use fallback values
+            class_distribution = {}
+            bias_score = 0.0
+            bias_report = type('BiasReport', (), {
+                'class_distribution': {},
+                'imbalance_score': 0.0,
+                'warnings': [f"Bias analysis failed: {str(e)}"]
+            })()
 
-        outliers = poisoning_report.outlier_indices
-        outlier_count = len(outliers)
-        outlier_ratio = poisoning_report.outlier_ratio
-
-        class_distribution = bias_report.class_distribution
-        bias_score = bias_report.imbalance_score
-        suspected_poisoning = poisoning_report.suspected_poisoning
-        poisoning_confidence = poisoning_report.confidence
+        # Run poisoning detection with error handling
+        try:
+            poisoning_report = detect_poisoning(df)
+            outliers = poisoning_report.outlier_indices
+            outlier_count = len(outliers)
+            outlier_ratio = poisoning_report.outlier_ratio
+            suspected_poisoning = poisoning_report.suspected_poisoning
+            poisoning_confidence = poisoning_report.confidence
+        except Exception as e:
+            logger.warning(f"Poisoning detection failed: {e}", exc_info=True)
+            # Use fallback values
+            outliers = []
+            outlier_count = 0
+            outlier_ratio = 0.0
+            suspected_poisoning = False
+            poisoning_confidence = 0.0
+            if not hasattr(bias_report, 'warnings'):
+                bias_report.warnings = []
+            bias_report.warnings.append(f"Poisoning detection failed: {str(e)}")
 
         # Calculate quality score (0-10)
         quality_score = 10.0
@@ -924,27 +975,56 @@ def parse_cve_results(tool_output: str) -> List[CVEResult]:
         List of CVEResult objects
     """
     try:
+        if not tool_output or not tool_output.strip():
+            logger.warning("Empty tool output for CVE search")
+            return []
+
         data = json.loads(tool_output)
+
+        if not isinstance(data, dict):
+            logger.error(f"Invalid CVE tool output format: expected dict, got {type(data).__name__}")
+            return []
+
         if data.get("status") != "success":
+            error_msg = data.get("message", "Unknown error")
+            logger.warning(f"CVE search returned non-success status: {error_msg}")
+            return []
+
+        cves_data = data.get("cves", [])
+        if not isinstance(cves_data, list):
+            logger.error(f"Invalid CVEs format: expected list, got {type(cves_data).__name__}")
             return []
 
         cves = []
-        for cve_dict in data.get("cves", []):
-            cve = CVEResult(
-                cve_id=cve_dict.get("cve_id", "UNKNOWN"),
-                description=cve_dict.get("description", ""),
-                cvss_score=cve_dict.get("cvss_score", 0.0),
-                severity=cve_dict.get("severity", "UNKNOWN"),
-                affected_versions=cve_dict.get("affected_versions", []),
-                published_date=cve_dict.get("published_date", ""),
-                references=cve_dict.get("references", []),
-                library=cve_dict.get("library", ""),
-            )
-            cves.append(cve)
+        for i, cve_dict in enumerate(cves_data):
+            try:
+                if not isinstance(cve_dict, dict):
+                    logger.warning(f"Skipping CVE entry {i}: not a dict")
+                    continue
+
+                cve = CVEResult(
+                    cve_id=cve_dict.get("cve_id", "UNKNOWN"),
+                    description=cve_dict.get("description", ""),
+                    cvss_score=float(cve_dict.get("cvss_score", 0.0)),
+                    severity=cve_dict.get("severity", "UNKNOWN"),
+                    affected_versions=cve_dict.get("affected_versions", []),
+                    published_date=cve_dict.get("published_date", ""),
+                    references=cve_dict.get("references", []),
+                    library=cve_dict.get("library", ""),
+                )
+                cves.append(cve)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse CVE entry {i}: {e}")
+                continue
 
         return cves
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse CVE results as JSON: {e}")
+        logger.debug(f"Tool output was: {tool_output[:200]}")
+        return []
     except Exception as e:
-        logger.error(f"Failed to parse CVE results: {e}")
+        logger.error(f"Unexpected error parsing CVE results: {e}", exc_info=True)
         return []
 
 
@@ -958,24 +1038,49 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
         DatasetAnalysisResult object or None if parsing fails
     """
     try:
-        data = json.loads(tool_output)
-        if data.get("status") != "success":
+        if not tool_output or not tool_output.strip():
+            logger.warning("Empty tool output for dataset analysis")
             return None
 
+        data = json.loads(tool_output)
+
+        if not isinstance(data, dict):
+            logger.error(f"Invalid dataset analysis output format: expected dict, got {type(data).__name__}")
+            return None
+
+        if data.get("status") != "success":
+            error_msg = data.get("message", "Unknown error")
+            logger.warning(f"Dataset analysis returned non-success status: {error_msg}")
+            return None
+
+        # Ensure class_distribution is a dict with proper types
+        class_dist = data.get("class_distribution", {})
+        if not isinstance(class_dist, dict):
+            logger.warning(f"Invalid class_distribution type: {type(class_dist).__name__}, using empty dict")
+            class_dist = {}
+
         return DatasetAnalysisResult(
-            num_rows=data.get("num_rows", 0),
-            num_features=data.get("num_features", 0),
-            outliers=data.get("outliers_sample", []),
-            outlier_count=data.get("outlier_count", 0),
-            class_distribution=data.get("class_distribution", {}),
-            suspected_poisoning=data.get("suspected_poisoning", False),
-            poisoning_confidence=data.get("poisoning_confidence", 0.0),
-            bias_score=data.get("bias_score", 0.0),
-            quality_score=data.get("quality_score", 0.0),
+            num_rows=int(data.get("num_rows", 0)),
+            num_features=int(data.get("num_features", 0)),
+            outliers=data.get("outliers_sample", data.get("outliers", [])),
+            outlier_count=int(data.get("outlier_count", 0)),
+            class_distribution=class_dist,
+            suspected_poisoning=bool(data.get("suspected_poisoning", False)),
+            poisoning_confidence=float(data.get("poisoning_confidence", 0.0)),
+            bias_score=float(data.get("bias_score", 0.0)),
+            quality_score=float(data.get("quality_score", 0.0)),
             recommendations=data.get("recommendations", []),
         )
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse dataset analysis as JSON: {e}")
+        logger.debug(f"Tool output was: {tool_output[:200]}")
+        return None
+    except (ValueError, TypeError) as e:
+        logger.error(f"Type conversion error in dataset analysis: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to parse dataset analysis: {e}")
+        logger.error(f"Unexpected error parsing dataset analysis: {e}", exc_info=True)
         return None
 
 

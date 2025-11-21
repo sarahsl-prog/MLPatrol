@@ -14,10 +14,21 @@ import sys
 import logging
 import json
 import traceback
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 from functools import lru_cache
+
+# Check Python version before importing any other modules
+if sys.version_info < (3, 10):
+    print(f"Error: MLPatrol requires Python 3.10 or higher.")
+    print(f"Current version: Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print(f"\nPlease upgrade Python:")
+    print(f"  - Windows: Download from https://www.python.org/downloads/")
+    print(f"  - macOS: brew install python@3.11")
+    print(f"  - Linux: sudo apt install python3.11")
+    sys.exit(1)
 
 import gradio as gr
 import pandas as pd
@@ -30,9 +41,13 @@ import markdown
 # Import MLPatrol components
 from src.agent.reasoning_chain import MLPatrolAgent, create_mlpatrol_agent, AgentResult
 from src.agent.tools import parse_cve_results, parse_dataset_analysis
+from src.utils.config_validator import validate_and_exit_on_error
 
 # Load environment variables
 load_dotenv()
+
+# Validate configuration at startup
+validate_and_exit_on_error()
 
 # Configure logging
 logging.basicConfig(
@@ -87,25 +102,31 @@ THEME_COLORS = {
 # ============================================================================
 
 class AgentState:
-    """Singleton class to manage the MLPatrol agent instance.
+    """Thread-safe singleton class to manage the MLPatrol agent instance.
 
     This ensures we only initialize the agent once and reuse it across
-    all user interactions for better performance.
+    all user interactions for better performance. Thread safety is crucial
+    since Gradio can handle multiple concurrent requests.
     """
     _instance: Optional[MLPatrolAgent] = None
     _initialized: bool = False
     _error: Optional[str] = None
     _llm_info: Optional[Dict[str, str]] = None
+    _lock: threading.Lock = threading.Lock()
 
     @classmethod
     def get_agent(cls) -> Optional[MLPatrolAgent]:
-        """Get or create the agent instance.
+        """Get or create the agent instance in a thread-safe manner.
 
         Returns:
             MLPatrolAgent instance or None if initialization failed
         """
+        # Double-checked locking pattern for thread safety
         if not cls._initialized:
-            cls._initialize_agent()
+            with cls._lock:
+                # Check again inside the lock to avoid race condition
+                if not cls._initialized:
+                    cls._initialize_agent()
         return cls._instance
 
     @classmethod
@@ -215,14 +236,16 @@ class AgentState:
 
     @classmethod
     def get_error(cls) -> Optional[str]:
-        """Get initialization error if any."""
+        """Get initialization error if any in a thread-safe manner."""
         if not cls._initialized:
-            cls._initialize_agent()
+            with cls._lock:
+                if not cls._initialized:
+                    cls._initialize_agent()
         return cls._error
 
     @classmethod
     def get_llm_info(cls) -> Optional[Dict[str, str]]:
-        """Get LLM configuration information.
+        """Get LLM configuration information in a thread-safe manner.
 
         Returns:
             Dictionary with LLM info or None if not initialized
@@ -235,7 +258,9 @@ class AgentState:
             }
         """
         if not cls._initialized:
-            cls._initialize_agent()
+            with cls._lock:
+                if not cls._initialized:
+                    cls._initialize_agent()
         return cls._llm_info
 
     @staticmethod
