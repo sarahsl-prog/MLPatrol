@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(dir /s /b *.py)",
+      "Bash(findstr:*)",
+      "Bash(test:*)",
+      "Bash(python3.12:*)",
+      "Bash(python312:*)",
+      "Bash(py -3.12:*)",
+      "Bash(py --list:*)",
+      "Bash(pip show:*)"
     ],
     "deny": [],
     "ask": []

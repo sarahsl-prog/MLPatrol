@@ -45,11 +45,33 @@ class BiasAnalyzer:
         if target_col:
             counts = df[target_col].value_counts(dropna=False)
             total = float(counts.sum()) or 1.0
-            distribution = {str(label): float(count / total) for label, count in counts.items()}
+            # Ensure consistent string keys and float values
+            distribution = {}
+            for label, count in counts.items():
+                # Convert label to string, handling special cases
+                if pd.isna(label):
+                    key = "NaN"
+                elif isinstance(label, (int, float, np.integer, np.floating)):
+                    key = str(int(label) if isinstance(label, (np.integer, int)) or float(label).is_integer() else float(label))
+                else:
+                    key = str(label)
+                distribution[key] = float(count / total)
 
             if distribution:
                 values = np.array(list(distribution.values()))
-                imbalance_score = float(values.max() - values.min())
+                # Calculate imbalance using ratio of max to min (more robust than difference)
+                # Handles edge cases: single class (score=0), perfectly balanced (score=0)
+                if len(values) == 1:
+                    imbalance_score = 0.0  # Single class = no imbalance
+                elif values.min() > 0:
+                    # Use ratio-based metric: (max/min - 1) / (num_classes - 1)
+                    # This normalizes imbalance across different numbers of classes
+                    ratio = values.max() / values.min()
+                    imbalance_score = float((ratio - 1.0) / max(len(values) - 1, 1))
+                else:
+                    # If min is 0, at least one class has no samples - severe imbalance
+                    imbalance_score = 1.0
+
                 entropy = float(-np.sum(values * np.log2(values + 1e-12)))
 
             if imbalance_score > self.imbalance_threshold:
