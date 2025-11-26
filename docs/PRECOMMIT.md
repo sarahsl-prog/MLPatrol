@@ -1,24 +1,22 @@
-Pre-commit hooks
+**Pre-commit Hooks Setup**
 
-This repository includes a minimal `.pre-commit-config.yaml` to run code formatters and linters locally before committing changes.
+This project uses `pre-commit` to run formatters and linters locally before commits.
 
-Install (once):
+Install and enable the hooks in your developer environment (Windows PowerShell):
 
 ```powershell
+# optional: activate your virtualenv first
+python -m pip install --upgrade pip
 pip install pre-commit
+
+# Install the git hooks for this repo
 pre-commit install
-```
 
-Run hooks manually:
-
-```powershell
+# To run hooks once across the repository (recommended after first install)
 pre-commit run --all-files
 ```
 
-Configured hooks:
-
-- `black` — code formatting
-- `isort` — sort imports
-- `flake8` — linting checks
-
-If you want additional hooks (e.g., ruff, safety), let me know and I can add them.
+Notes:
+- The configured hooks are `black`, `isort`, `flake8`, and several small checks (trailing whitespace, end-of-file fixer, YAML check).
+- If you prefer to make pre-commit part of your development dependencies, add `pre-commit` to your `requirements-dev.txt` or `pyproject.toml` dev dependencies.
+- On CI we already run `black --check`, `isort --check-only` and `flake8` as part of the test workflow.

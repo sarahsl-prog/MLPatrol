@@ -14,10 +14,21 @@ import sys
 import logging
 import json
 import traceback
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timezone
 from functools import lru_cache
+
+# Check Python version before importing any other modules
+if sys.version_info < (3, 10):
+    print(f"Error: MLPatrol requires Python 3.10 or higher.")
+    print(f"Current version: Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print(f"\nPlease upgrade Python:")
+    print(f"  - Windows: Download from https://www.python.org/downloads/")
+    print(f"  - macOS: brew install python@3.11")
+    print(f"  - Linux: sudo apt install python3.11")
+    sys.exit(1)
 
 import gradio as gr
 import pandas as pd
@@ -38,8 +49,16 @@ AgentResult = Any
 from src.security.cve_monitor import CVEMonitor
 from src.security.code_generator import build_cve_security_script
 
+# Import MLPatrol components
+from src.agent.reasoning_chain import MLPatrolAgent, create_mlpatrol_agent, AgentResult
+from src.agent.tools import parse_cve_results, parse_dataset_analysis
+from src.utils.config_validator import validate_and_exit_on_error
+
 # Load environment variables
 load_dotenv()
+
+# Validate configuration at startup
+validate_and_exit_on_error()
 
 # Configure logging
 logging.basicConfig(
@@ -92,10 +111,11 @@ THEME_COLORS = {
 
 
 class AgentState:
-    """Singleton class to manage the MLPatrol agent instance.
+    """Thread-safe singleton class to manage the MLPatrol agent instance.
 
     This ensures we only initialize the agent once and reuse it across
-    all user interactions for better performance.
+    all user interactions for better performance. Thread safety is crucial
+    since Gradio can handle multiple concurrent requests.
     """
 
     _instance: Optional[Any] = None
@@ -109,12 +129,25 @@ class AgentState:
     @classmethod
     def get_agent(cls) -> Optional[Any]:
         """Get or create the agent instance.
+    _instance: Optional[MLPatrolAgent] = None
+    _initialized: bool = False
+    _error: Optional[str] = None
+    _llm_info: Optional[Dict[str, str]] = None
+    _lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def get_agent(cls) -> Optional[MLPatrolAgent]:
+        """Get or create the agent instance in a thread-safe manner.
 
         Returns:
             MLPatrolAgent instance or None if initialization failed
         """
+        # Double-checked locking pattern for thread safety
         if not cls._initialized:
-            cls._initialize_agent()
+            with cls._lock:
+                # Check again inside the lock to avoid race condition
+                if not cls._initialized:
+                    cls._initialize_agent()
         return cls._instance
 
     @classmethod
@@ -244,14 +277,16 @@ class AgentState:
 
     @classmethod
     def get_error(cls) -> Optional[str]:
-        """Get initialization error if any."""
+        """Get initialization error if any in a thread-safe manner."""
         if not cls._initialized:
-            cls._initialize_agent()
+            with cls._lock:
+                if not cls._initialized:
+                    cls._initialize_agent()
         return cls._error
 
     @classmethod
     def get_llm_info(cls) -> Optional[Dict[str, str]]:
-        """Get LLM configuration information.
+        """Get LLM configuration information in a thread-safe manner.
 
         Returns:
             Dictionary with LLM info or None if not initialized
@@ -264,7 +299,9 @@ class AgentState:
             }
         """
         if not cls._initialized:
-            cls._initialize_agent()
+            with cls._lock:
+                if not cls._initialized:
+                    cls._initialize_agent()
         return cls._llm_info
 
     @classmethod
@@ -1136,6 +1173,8 @@ def run_scan_now() -> str:
 
 def handle_code_generation(
     purpose: str, library: str, cve_id: Optional[str], progress=gr.Progress()
+def handle_code_generation(
+    purpose: str, library: str, cve_id: str, progress=gr.Progress()
 ) -> Tuple[str, str, str, str]:
     """Handle security code generation request.
 
@@ -1557,16 +1596,8 @@ def create_interface() -> gr.Blocks:
                             "Run CVE Scan Now", variant="primary"
                         )
 
-                    with gr.Column(scale=2):
-                        dashboard_html = gr.HTML(label="Alerts")
-
-                # Connect handlers
-                dashboard_refresh.click(
-                    fn=get_dashboard_html, inputs=None, outputs=[dashboard_html]
-                )
-                dashboard_run_scan.click(
-                    fn=run_scan_now, inputs=None, outputs=[dashboard_status]
-                )
+        # Main tabs
+        with gr.Tabs() as tabs:
             # ================================================================
             # Tab 1: CVE Monitoring
             # ================================================================
@@ -1710,7 +1741,7 @@ def create_interface() -> gr.Blocks:
                     label="Generated Code", language="python", lines=20
                 )
 
-                _code_download_btn = gr.DownloadButton(
+                code_download_btn = gr.DownloadButton(
                     label="⬇️ Download Script", visible=False
                 )
 
@@ -1736,7 +1767,7 @@ def create_interface() -> gr.Blocks:
                 chat_interface = gr.Chatbot(
                     label="MLPatrol Security Assistant",
                     height=400,
-                    type="messages",
+                    bubble_full_width=False,
                 )
 
                 with gr.Row():
@@ -1771,7 +1802,11 @@ def create_interface() -> gr.Blocks:
                 chat_clear.click(
                     lambda: ([], "", ""),
                     outputs=[chat_interface, chat_reasoning, chat_status],
-                ).then(clear_agent_history_safe)
+                ).then(
+                    lambda: AgentState.get_agent().clear_history()
+                    if AgentState.get_agent()
+                    else None
+                )
 
         # Footer
         gr.Markdown("""
@@ -1800,19 +1835,17 @@ def main():
     try:
         logger.info("Starting MLPatrol application...")
 
-        # Initialize agent in a background thread so UI can start even if LLM libs are missing
-        logger.info("Initializing agent in background thread...")
-        # Load persisted alerts before starting background tasks
-        try:
-            AgentState.load_alerts_from_disk()
-        except Exception:
-            logger.debug("Failed to load persisted alerts", exc_info=True)
+        # Runtime dependency check
+        missing = _check_runtime_dependencies()
+        if missing:
+            logger.warning(
+                "Missing optional dependencies: %s. Some features may not work as expected.",
+                ", ".join(missing),
+            )
 
-        threading.Thread(target=AgentState.get_agent, daemon=True).start()
-
-        # Start persistent background coordinator loop in background thread
-        logger.info("Starting background coordinator loop thread...")
-        threading.Thread(target=_background_coordinator_loop, daemon=True).start()
+        # Initialize agent in background
+        logger.info("Initializing agent...")
+        AgentState.get_agent()
 
         # Create and launch interface
         interface = create_interface()
@@ -1836,3 +1869,31 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _check_runtime_dependencies() -> list:
+    """Check for commonly required runtime dependencies and return missing names.
+
+    This is a light-weight check that logs helpful guidance instead of failing
+    hard. It is intended to make developer onboarding and debugging easier.
+    """
+    missing = []
+    required = [
+        ("numpy", "numpy"),
+        ("pandas", "pandas"),
+        ("scipy", "scipy"),
+        ("gradio", "gradio"),
+    ]
+    for pkg_name, import_name in required:
+        try:
+            __import__(import_name)
+        except Exception:
+            missing.append(pkg_name)
+
+    if missing:
+        logger.info(
+            "Runtime dependency check: missing packages: %s. Install with `pip install -r requirements.txt`.",
+            ", ".join(missing),
+        )
+
+    return missing

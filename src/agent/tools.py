@@ -20,6 +20,7 @@ import requests
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
 import pandas as pd
+
 try:
     import numpy as np
 except ImportError:  # pragma: no cover - handled via dataset tests
@@ -27,6 +28,12 @@ except ImportError:  # pragma: no cover - handled via dataset tests
 
 from src.dataset.bias_analyzer import analyze_bias
 from src.dataset.poisoning_detector import detect_poisoning
+from src.dataset.statistical_tests import (
+    detect_outliers_zscore,
+    dataset_summary,
+    ks_test_between_columns,
+    chi2_of_categorical,
+)
 from src.security.code_generator import (
     build_cve_security_script,
     build_general_security_script,
@@ -54,6 +61,7 @@ class CVEResult:
         references: List of reference URLs
         library: The affected library name
     """
+
     cve_id: str
     description: str
     cvss_score: float
@@ -93,6 +101,7 @@ class DatasetAnalysisResult:
         quality_score: Overall data quality score (0-10)
         recommendations: List of recommended actions
     """
+
     num_rows: int
     num_features: int
     outliers: List[int]
@@ -103,6 +112,10 @@ class DatasetAnalysisResult:
     bias_score: float
     quality_score: float
     recommendations: List[str]
+    # Optional statistical test summaries (KS tests, chi2 for categorical)
+    stat_tests: Dict[str, Any] = None
+    # Small dataset summary (numeric/categorical columns)
+    dataset_summary: Dict[str, Any] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -110,13 +123,17 @@ class DatasetAnalysisResult:
             "num_rows": self.num_rows,
             "num_features": self.num_features,
             "outlier_count": self.outlier_count,
+            # Provide both a truncated sample and a fuller outliers list (truncated to reasonable size)
             "outliers_sample": self.outliers[:10],  # Only first 10 for brevity
+            "outliers": self.outliers[:200],
             "class_distribution": self.class_distribution,
             "suspected_poisoning": self.suspected_poisoning,
             "poisoning_confidence": self.poisoning_confidence,
             "bias_score": self.bias_score,
             "quality_score": self.quality_score,
             "recommendations": self.recommendations,
+            "stat_tests": self.stat_tests or {},
+            "dataset_summary": self.dataset_summary or {},
         }
 
 
@@ -135,7 +152,7 @@ class CVESearchInput(BaseModel):
         default=90,
         description="Number of days to look back for CVEs (default: 90 days)",
         ge=1,
-        le=3650
+        le=3650,
     )
 
     @field_validator("library")
@@ -143,7 +160,9 @@ class CVESearchInput(BaseModel):
     def validate_library_name(cls, v):
         """Validate library name format."""
         if not re.match(r"^[a-zA-Z0-9_-]+$", v):
-            raise ValueError("Library name must contain only alphanumeric characters, hyphens, and underscores")
+            raise ValueError(
+                "Library name must contain only alphanumeric characters, hyphens, and underscores"
+            )
         return v.lower()
 
 
@@ -154,10 +173,7 @@ class WebSearchInput(BaseModel):
         description="Search query for security information, papers, or blog posts"
     )
     max_results: int = Field(
-        default=5,
-        description="Maximum number of results to return",
-        ge=1,
-        le=10
+        default=5, description="Maximum number of results to return", ge=1, le=10
     )
 
 
@@ -166,11 +182,11 @@ class DatasetAnalysisInput(BaseModel):
 
     data_path: Optional[str] = Field(
         default=None,
-        description="Path to CSV file to analyze (optional if data_json is provided)"
+        description="Path to CSV file to analyze (optional if data_json is provided)",
     )
     data_json: Optional[str] = Field(
         default=None,
-        description="JSON string of dataset data (optional if data_path is provided)"
+        description="JSON string of dataset data (optional if data_path is provided)",
     )
 
     @field_validator("data_json")
@@ -188,16 +204,12 @@ class CodeGenerationInput(BaseModel):
     purpose: str = Field(
         description="Purpose of the security script (e.g., 'check CVE vulnerability', 'validate data integrity')"
     )
-    library: str = Field(
-        description="Target library for the security check"
-    )
+    library: str = Field(description="Target library for the security check")
     cve_id: Optional[str] = Field(
-        default=None,
-        description="CVE ID if generating CVE-specific validation code"
+        default=None, description="CVE ID if generating CVE-specific validation code"
     )
     affected_versions: Optional[List[str]] = Field(
-        default=None,
-        description="List of affected versions to check against"
+        default=None, description="List of affected versions to check against"
     )
 
     @field_validator("cve_id")
@@ -212,12 +224,9 @@ class CodeGenerationInput(BaseModel):
 class HuggingFaceSearchInput(BaseModel):
     """Input schema for HuggingFace search tool."""
 
-    query: str = Field(
-        description="Search query for HuggingFace datasets or models"
-    )
+    query: str = Field(description="Search query for HuggingFace datasets or models")
     search_type: str = Field(
-        default="datasets",
-        description="Type of search: 'datasets' or 'models'"
+        default="datasets", description="Type of search: 'datasets' or 'models'"
     )
 
     @field_validator("search_type")
@@ -270,26 +279,32 @@ def cve_search_impl(library: str, days_back: int = 90) -> str:
 
     except requests.Timeout:
         logger.warning("CVE search timed out for %s", library)
-        return json.dumps({
-            "status": "timeout",
-            "message": f"CVE search timed out for {library}. Try again or check with fewer days_back.",
-            "library": library
-        })
+        return json.dumps(
+            {
+                "status": "timeout",
+                "message": f"CVE search timed out for {library}. Try again or check with fewer days_back.",
+                "library": library,
+            }
+        )
     except requests.RequestException as e:
         logger.error("CVE search failed: %s", e)
-        return json.dumps({
-            "status": "error",
-            "message": f"CVE database temporarily unavailable. Recommendation: Check {library} advisories at https://nvd.nist.gov",
-            "library": library,
-            "error": str(e)
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": f"CVE database temporarily unavailable. Recommendation: Check {library} advisories at https://nvd.nist.gov",
+                "library": library,
+                "error": str(e),
+            }
+        )
     except Exception as e:
         logger.error(f"Unexpected error in cve_search: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "message": "Unexpected error during CVE search",
-            "error": str(e)
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "Unexpected error during CVE search",
+                "error": str(e),
+            }
+        )
 
 
 def _classify_search_query(query: str) -> str:
@@ -302,12 +317,12 @@ def _classify_search_query(query: str) -> str:
         Query type: 'cve_monitoring' or 'general_security'
     """
     cve_patterns = [
-        r'CVE-\d{4}-\d+',           # CVE-2024-1234
-        r'vulnerability.*\d{4}',     # "vulnerabilities 2024"
-        r'latest.*CVE',              # "latest CVE in PyTorch"
-        r'recent.*vulnerability',    # "recent vulnerabilities"
-        r'security.*advisory',       # "security advisory"
-        r'breaking.*threat',         # "breaking threat"
+        r"CVE-\d{4}-\d+",  # CVE-2024-1234
+        r"vulnerability.*\d{4}",  # "vulnerabilities 2024"
+        r"latest.*CVE",  # "latest CVE in PyTorch"
+        r"recent.*vulnerability",  # "recent vulnerabilities"
+        r"security.*advisory",  # "security advisory"
+        r"breaking.*threat",  # "breaking threat"
     ]
 
     query_lower = query.lower()
@@ -335,10 +350,28 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
         api_key = os.getenv("TAVILY_API_KEY")
         if not api_key:
             logger.error("TAVILY_API_KEY not set")
+            return json.dumps(
+                {
+                    "status": "error",
+                    "provider": "tavily",
+                    "message": "Tavily API key not configured. Add TAVILY_API_KEY to .env file.",
+                }
+            )
+        api_key = os.getenv("TAVILY_API_KEY", "")
+        # Check for missing or placeholder API key
+        if not api_key or api_key == "your_tavily_api_key_here":
+            logger.error("TAVILY_API_KEY not configured")
             return json.dumps({
                 "status": "error",
                 "provider": "tavily",
-                "message": "Tavily API key not configured. Add TAVILY_API_KEY to .env file."
+                "message": "Tavily API key not configured. Get your API key at https://tavily.com and add TAVILY_API_KEY to .env file."
+            })
+        if len(api_key) < 20:
+            logger.error("TAVILY_API_KEY appears invalid (too short)")
+            return json.dumps({
+                "status": "error",
+                "provider": "tavily",
+                "message": "Tavily API key appears invalid. Please check your TAVILY_API_KEY in .env file."
             })
 
         # Get configuration
@@ -359,7 +392,7 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
                 include_answer=True,
                 include_raw_content=False,
                 include_images=False,
-                api_key=api_key
+                api_key=api_key,
             )
 
             start_time = time.time()
@@ -373,7 +406,7 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
                 "query": query_clean,
                 "duration_ms": round(duration_ms, 2),
                 "results": results if isinstance(results, list) else [results],
-                "count": len(results) if isinstance(results, list) else 1
+                "count": len(results) if isinstance(results, list) else 1,
             }
 
             logger.info(f"Tavily search completed in {duration_ms:.0f}ms")
@@ -383,9 +416,7 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
             # Fallback to direct API call if LangChain tool not available
             logger.warning("langchain-community not installed, using direct API")
 
-            headers = {
-                "Content-Type": "application/json"
-            }
+            headers = {"Content-Type": "application/json"}
 
             payload = {
                 "api_key": api_key,
@@ -393,7 +424,7 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
                 "search_depth": search_depth,
                 "max_results": max_results,
                 "include_answer": True,
-                "include_raw_content": False
+                "include_raw_content": False,
             }
 
             start_time = time.time()
@@ -401,7 +432,7 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
                 "https://api.tavily.com/search",
                 headers=headers,
                 json=payload,
-                timeout=30.0
+                timeout=30.0,
             )
             response.raise_for_status()
             duration_ms = (time.time() - start_time) * 1000
@@ -416,25 +447,31 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
 
     except requests.exceptions.Timeout:
         logger.error("Tavily API timeout")
-        return json.dumps({
-            "status": "error",
-            "provider": "tavily",
-            "message": "Search request timed out. Try again later."
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "provider": "tavily",
+                "message": "Search request timed out. Try again later.",
+            }
+        )
     except requests.exceptions.HTTPError as e:
         logger.error(f"Tavily API HTTP error: {e.response.status_code}")
-        return json.dumps({
-            "status": "error",
-            "provider": "tavily",
-            "message": f"API error: {e.response.status_code}"
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "provider": "tavily",
+                "message": f"API error: {e.response.status_code}",
+            }
+        )
     except Exception as e:
         logger.error(f"Tavily search failed: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "provider": "tavily",
-            "message": f"Search failed: {str(e)}"
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "provider": "tavily",
+                "message": f"Search failed: {str(e)}",
+            }
+        )
 
 
 def _brave_search(query: str, max_results: int = 5) -> str:
@@ -454,10 +491,28 @@ def _brave_search(query: str, max_results: int = 5) -> str:
         api_key = os.getenv("BRAVE_API_KEY")
         if not api_key:
             logger.error("BRAVE_API_KEY not set")
+            return json.dumps(
+                {
+                    "status": "error",
+                    "provider": "brave",
+                    "message": "Brave API key not configured. Add BRAVE_API_KEY to .env file.",
+                }
+            )
+        api_key = os.getenv("BRAVE_API_KEY", "")
+        # Check for missing or placeholder API key
+        if not api_key or api_key == "your_brave_api_key_here":
+            logger.error("BRAVE_API_KEY not configured")
             return json.dumps({
                 "status": "error",
                 "provider": "brave",
-                "message": "Brave API key not configured. Add BRAVE_API_KEY to .env file."
+                "message": "Brave API key not configured. Get your API key at https://brave.com/search/api/ and add BRAVE_API_KEY to .env file."
+            })
+        if len(api_key) < 20:
+            logger.error("BRAVE_API_KEY appears invalid (too short)")
+            return json.dumps({
+                "status": "error",
+                "provider": "brave",
+                "message": "Brave API key appears invalid. Please check your BRAVE_API_KEY in .env file."
             })
 
         # Get configuration
@@ -468,17 +523,14 @@ def _brave_search(query: str, max_results: int = 5) -> str:
 
         logger.info(f"Brave search: {query_clean} (freshness: {freshness})")
 
-        headers = {
-            "Accept": "application/json",
-            "X-Subscription-Token": api_key
-        }
+        headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
 
         params = {
             "q": query_clean,
             "count": max_results,
             "search_lang": "en",
             "safesearch": "moderate",
-            "freshness": freshness
+            "freshness": freshness,
         }
 
         start_time = time.time()
@@ -486,7 +538,7 @@ def _brave_search(query: str, max_results: int = 5) -> str:
             "https://api.search.brave.com/res/v1/web/search",
             headers=headers,
             params=params,
-            timeout=30.0
+            timeout=30.0,
         )
         response.raise_for_status()
         duration_ms = (time.time() - start_time) * 1000
@@ -511,19 +563,23 @@ def _brave_search(query: str, max_results: int = 5) -> str:
                 }
                 for result in web_results[:max_results]
             ],
-            "count": len(web_results)
+            "count": len(web_results),
         }
 
-        logger.info(f"Brave search completed in {duration_ms:.0f}ms: {len(web_results)} results")
+        logger.info(
+            f"Brave search completed in {duration_ms:.0f}ms: {len(web_results)} results"
+        )
         return json.dumps(formatted_results, indent=2)
 
     except requests.exceptions.Timeout:
         logger.error("Brave API timeout")
-        return json.dumps({
-            "status": "error",
-            "provider": "brave",
-            "message": "Search request timed out. Try again later."
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "provider": "brave",
+                "message": "Search request timed out. Try again later.",
+            }
+        )
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         logger.error(f"Brave API HTTP error: {status_code}")
@@ -535,18 +591,22 @@ def _brave_search(query: str, max_results: int = 5) -> str:
             500: "Brave API server error. Try again later.",
         }
 
-        return json.dumps({
-            "status": "error",
-            "provider": "brave",
-            "message": error_messages.get(status_code, f"API error: {status_code}")
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "provider": "brave",
+                "message": error_messages.get(status_code, f"API error: {status_code}"),
+            }
+        )
     except Exception as e:
         logger.error(f"Brave search failed: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "provider": "brave",
-            "message": f"Search failed: {str(e)}"
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "provider": "brave",
+                "message": f"Search failed: {str(e)}",
+            }
+        )
 
 
 def web_search_impl(query: str, max_results: int = 5) -> str:
@@ -570,20 +630,24 @@ def web_search_impl(query: str, max_results: int = 5) -> str:
     try:
         # Check if web search is enabled
         if os.getenv("ENABLE_WEB_SEARCH", "true").lower() != "true":
-            return json.dumps({
-                "status": "disabled",
-                "message": "Web search is disabled. Enable it in .env with ENABLE_WEB_SEARCH=true"
-            })
+            return json.dumps(
+                {
+                    "status": "disabled",
+                    "message": "Web search is disabled. Enable it in .env with ENABLE_WEB_SEARCH=true",
+                }
+            )
 
         # Check which providers are enabled
         use_tavily = os.getenv("USE_TAVILY_SEARCH", "false").lower() == "true"
         use_brave = os.getenv("USE_BRAVE_SEARCH", "false").lower() == "true"
 
         if not use_tavily and not use_brave:
-            return json.dumps({
-                "status": "disabled",
-                "message": "No web search providers enabled. Set USE_TAVILY_SEARCH or USE_BRAVE_SEARCH to true in .env"
-            })
+            return json.dumps(
+                {
+                    "status": "disabled",
+                    "message": "No web search providers enabled. Set USE_TAVILY_SEARCH or USE_BRAVE_SEARCH to true in .env",
+                }
+            )
 
         # Classify query type for routing
         query_type = _classify_search_query(query)
@@ -610,21 +674,20 @@ def web_search_impl(query: str, max_results: int = 5) -> str:
             logger.info(f"Fallback to Brave (preferred {preferred} not available)")
             return _brave_search(query, max_results)
         else:
-            return json.dumps({
-                "status": "error",
-                "message": "No web search provider available"
-            })
+            return json.dumps(
+                {"status": "error", "message": "No web search provider available"}
+            )
 
     except Exception as e:
         logger.error(f"Web search routing failed: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "message": "Web search unavailable",
-            "error": str(e)
-        })
+        return json.dumps(
+            {"status": "error", "message": "Web search unavailable", "error": str(e)}
+        )
 
 
-def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[str] = None) -> str:
+def analyze_dataset_impl(
+    data_path: Optional[str] = None, data_json: Optional[str] = None
+) -> str:
     """Analyze a dataset for security issues (poisoning, bias, anomalies).
 
     This function performs comprehensive statistical analysis on datasets to detect:
@@ -653,46 +716,97 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
             try:
                 df = pd.read_csv(data_path)
             except Exception as e:
-                return json.dumps({
-                    "status": "error",
-                    "message": f"Failed to load CSV file: {e}"
-                })
+                return json.dumps(
+                    {"status": "error", "message": f"Failed to load CSV file: {e}"}
+                )
         elif data_json:
             try:
                 data = json.loads(data_json)
                 df = pd.DataFrame(data)
             except Exception as e:
-                return json.dumps({
-                    "status": "error",
-                    "message": f"Failed to parse JSON data: {e}"
-                })
+                return json.dumps(
+                    {"status": "error", "message": f"Failed to parse JSON data: {e}"}
+                )
         else:
-            return json.dumps({
-                "status": "error",
-                "message": "No data source provided"
-            })
+            return json.dumps({"status": "error", "message": "No data source provided"})
 
         if np is None:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Numpy is not installed. Cannot perform dataset analysis.",
+                }
+            )
+
+        # Validate dataset
+        num_rows, num_features = df.shape
+        if num_rows < 10:
             return json.dumps({
                 "status": "error",
-                "message": "Numpy is not installed. Cannot perform dataset analysis."
+                "message": f"Dataset too small for analysis. Need at least 10 rows, got {num_rows}"
+            })
+        if num_features < 1:
+            return json.dumps({
+                "status": "error",
+                "message": "Dataset has no features to analyze"
             })
 
-        # Basic statistics
-        num_rows, num_features = df.shape
-        logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
-
-        bias_report = analyze_bias(df)
-        poisoning_report = detect_poisoning(df)
-
-        outliers = poisoning_report.outlier_indices
-        outlier_count = len(outliers)
-        outlier_ratio = poisoning_report.outlier_ratio
+        # Use poisoning detector's outliers, but augment with z-score based detection
+        outliers = poisoning_report.outlier_indices or []
+        try:
+            z_outliers = detect_outliers_zscore(df, threshold=3.0)
+        except Exception:
+            z_outliers = []
+        # merge unique indices
+        combined_outliers = sorted(set(outliers) | set(z_outliers))
+        outlier_count = len(combined_outliers)
+        outlier_ratio = outlier_count / max(len(df), 1)
 
         class_distribution = bias_report.class_distribution
         bias_score = bias_report.imbalance_score
-        suspected_poisoning = poisoning_report.suspected_poisoning
-        poisoning_confidence = poisoning_report.confidence
+        suspected_poisoning = poisoning_report.suspected_poisoning or (
+            outlier_ratio > 0.05
+        )
+        poisoning_confidence = max(
+            poisoning_report.confidence, min(outlier_ratio * 10, 1.0)
+        )
+        logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
+
+        # Run bias analysis with error handling
+        try:
+            bias_report = analyze_bias(df)
+            class_distribution = bias_report.class_distribution
+            bias_score = bias_report.imbalance_score
+        except Exception as e:
+            logger.warning(f"Bias analysis failed: {e}", exc_info=True)
+            # Use fallback values
+            class_distribution = {}
+            bias_score = 0.0
+            bias_report = type('BiasReport', (), {
+                'class_distribution': {},
+                'imbalance_score': 0.0,
+                'warnings': [f"Bias analysis failed: {str(e)}"]
+            })()
+
+        # Run poisoning detection with error handling
+        try:
+            poisoning_report = detect_poisoning(df)
+            outliers = poisoning_report.outlier_indices
+            outlier_count = len(outliers)
+            outlier_ratio = poisoning_report.outlier_ratio
+            suspected_poisoning = poisoning_report.suspected_poisoning
+            poisoning_confidence = poisoning_report.confidence
+        except Exception as e:
+            logger.warning(f"Poisoning detection failed: {e}", exc_info=True)
+            # Use fallback values
+            outliers = []
+            outlier_count = 0
+            outlier_ratio = 0.0
+            suspected_poisoning = False
+            poisoning_confidence = 0.0
+            if not hasattr(bias_report, 'warnings'):
+                bias_report.warnings = []
+            bias_report.warnings.append(f"Poisoning detection failed: {str(e)}")
 
         # Calculate quality score (0-10)
         quality_score = 10.0
@@ -705,45 +819,87 @@ def analyze_dataset_impl(data_path: Optional[str] = None, data_json: Optional[st
         # Generate recommendations
         recommendations = []
         if outlier_count > 0:
-            recommendations.append(f"Manually review {outlier_count} statistical outliers")
+            recommendations.append(
+                f"Manually review {outlier_count} statistical outliers"
+            )
         if bias_score > 0.3:
-            recommendations.append("Address class imbalance through resampling or class weighting")
+            recommendations.append(
+                "Address class imbalance through resampling or class weighting"
+            )
         if suspected_poisoning:
-            recommendations.append("Implement robust training techniques (label smoothing, outlier removal)")
+            recommendations.append(
+                "Implement robust training techniques (label smoothing, outlier removal)"
+            )
         if quality_score < 7.0:
-            recommendations.append("Consider data cleaning and validation before training")
+            recommendations.append(
+                "Consider data cleaning and validation before training"
+            )
         recommendations.extend(bias_report.warnings)
+
+        # Statistical tests: KS between numeric columns (pairwise up to 10 columns), chi2 for categorical
+        stat_tests: Dict[str, Any] = {}
+        try:
+            summary = dataset_summary(df)
+            stat_tests["dataset_summary"] = summary
+
+            numeric_cols = summary.get("numeric_columns", [])[:10]
+            ks_results: Dict[str, Dict[str, float]] = {}
+            # pairwise KS: compare each column to the first numeric column
+            if len(numeric_cols) >= 2:
+                ref = df[numeric_cols[0]]
+                for col in numeric_cols[1:]:
+                    stat, p = ks_test_between_columns(ref, df[col])
+                    ks_results[f"{numeric_cols[0]}_vs_{col}"] = {
+                        "stat": stat,
+                        "pvalue": p,
+                    }
+            stat_tests["ks_tests"] = ks_results
+
+            categorical_cols = summary.get("categorical_columns", [])
+            chi2_results: Dict[str, Dict[str, float]] = {}
+            for col in categorical_cols:
+                try:
+                    chi2, p = chi2_of_categorical(df[col])
+                    chi2_results[col] = {"chi2": chi2, "pvalue": p}
+                except Exception:
+                    chi2_results[col] = {"chi2": 0.0, "pvalue": 1.0}
+            stat_tests["chi2_tests"] = chi2_results
+        except Exception as e:
+            logger.debug(f"Statistical tests failed: {e}")
+            stat_tests = {}
 
         result = DatasetAnalysisResult(
             num_rows=num_rows,
             num_features=num_features,
-            outliers=outliers,
+            outliers=combined_outliers,
             outlier_count=outlier_count,
             class_distribution=class_distribution,
             suspected_poisoning=suspected_poisoning,
             poisoning_confidence=poisoning_confidence,
             bias_score=bias_score,
             quality_score=quality_score,
-            recommendations=recommendations
+            recommendations=recommendations,
+            stat_tests=stat_tests,
+            dataset_summary=summary if "summary" in locals() else {},
         )
 
         logger.info(f"Dataset analysis complete. Quality score: {quality_score:.1f}/10")
 
-        return json.dumps({
-            "status": "success",
-            **result.to_dict()
-        }, indent=2)
+        return json.dumps({"status": "success", **result.to_dict()}, indent=2)
 
     except Exception as e:
         logger.error(f"Dataset analysis failed: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "message": "Dataset analysis failed",
-            "error": str(e)
-        })
+        return json.dumps(
+            {"status": "error", "message": "Dataset analysis failed", "error": str(e)}
+        )
 
 
-def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str] = None, affected_versions: Optional[List[str]] = None) -> str:
+def generate_security_code_impl(
+    purpose: str,
+    library: str,
+    cve_id: Optional[str] = None,
+    affected_versions: Optional[List[str]] = None,
+) -> str:
     """Generate Python security validation code.
 
     Creates production-ready Python scripts for security validation tasks such as:
@@ -771,7 +927,9 @@ def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str
         logger.info(f"Generating security code for {library}: {purpose}")
 
         if cve_id or "cve" in (purpose or "").lower():
-            code = build_cve_security_script(purpose, library, cve_id, affected_versions)
+            code = build_cve_security_script(
+                purpose, library, cve_id, affected_versions
+            )
         else:
             code = build_general_security_script(purpose, library, affected_versions)
 
@@ -784,7 +942,7 @@ def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str
             "cve_id": cve_id,
             "code": code,
             "filename": f"mlpatrol_check_{sanitized_name}.py",
-            "usage": f"python mlpatrol_check_{sanitized_name}.py"
+            "usage": f"python mlpatrol_check_{sanitized_name}.py",
         }
 
         logger.info("Security code generated successfully")
@@ -792,11 +950,9 @@ def generate_security_code_impl(purpose: str, library: str, cve_id: Optional[str
 
     except Exception as e:
         logger.error(f"Code generation failed: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "message": "Code generation failed",
-            "error": str(e)
-        })
+        return json.dumps(
+            {"status": "error", "message": "Code generation failed", "error": str(e)}
+        )
 
 
 def huggingface_search_impl(query: str, search_type: str = "datasets") -> str:
@@ -825,9 +981,9 @@ def huggingface_search_impl(query: str, search_type: str = "datasets") -> str:
                 {
                     "name": f"Example {search_type} result for: {query}",
                     "url": f"{base_url}?search={query}",
-                    "note": "In production, integrate with HuggingFace Hub API for real results"
+                    "note": "In production, integrate with HuggingFace Hub API for real results",
                 }
-            ]
+            ],
         }
 
         logger.info(f"HuggingFace search completed")
@@ -835,11 +991,9 @@ def huggingface_search_impl(query: str, search_type: str = "datasets") -> str:
 
     except Exception as e:
         logger.error(f"HuggingFace search failed: {e}", exc_info=True)
-        return json.dumps({
-            "status": "error",
-            "message": "HuggingFace search failed",
-            "error": str(e)
-        })
+        return json.dumps(
+            {"status": "error", "message": "HuggingFace search failed", "error": str(e)}
+        )
 
 
 # ============================================================================
@@ -863,8 +1017,8 @@ def create_mlpatrol_tools() -> List[StructuredTool]:
             func=cve_search_impl,
             name="cve_search",
             description="Search the National Vulnerability Database (NVD) for CVEs affecting ML libraries. "
-                        "Use this when users ask about vulnerabilities, security issues, or CVEs in libraries like "
-                        "numpy, pytorch, tensorflow, scikit-learn, etc. Returns CVE IDs, CVSS scores, and details.",
+            "Use this when users ask about vulnerabilities, security issues, or CVEs in libraries like "
+            "numpy, pytorch, tensorflow, scikit-learn, etc. Returns CVE IDs, CVSS scores, and details.",
             args_schema=CVESearchInput,
             return_direct=False,
         ),
@@ -872,8 +1026,8 @@ def create_mlpatrol_tools() -> List[StructuredTool]:
             func=web_search_impl,
             name="web_search",
             description="Search the web for ML security information, research papers, blog posts, and best practices. "
-                        "Use this for general security questions, exploitation techniques, or recent security trends. "
-                        "Returns relevant web resources and summaries.",
+            "Use this for general security questions, exploitation techniques, or recent security trends. "
+            "Returns relevant web resources and summaries.",
             args_schema=WebSearchInput,
             return_direct=False,
         ),
@@ -881,8 +1035,8 @@ def create_mlpatrol_tools() -> List[StructuredTool]:
             func=analyze_dataset_impl,
             name="analyze_dataset",
             description="Analyze a dataset for security issues including poisoning attempts, statistical outliers, "
-                        "bias, and data quality problems. Use when users upload datasets or ask about data security. "
-                        "Returns statistical analysis, outlier detection, and quality scores.",
+            "bias, and data quality problems. Use when users upload datasets or ask about data security. "
+            "Returns statistical analysis, outlier detection, and quality scores.",
             args_schema=DatasetAnalysisInput,
             return_direct=False,
         ),
@@ -890,8 +1044,8 @@ def create_mlpatrol_tools() -> List[StructuredTool]:
             func=generate_security_code_impl,
             name="generate_security_code",
             description="Generate Python security validation scripts for checking vulnerabilities, validating versions, "
-                        "or performing security checks. Use when users need code to validate their environment. "
-                        "Returns production-ready Python code with error handling.",
+            "or performing security checks. Use when users need code to validate their environment. "
+            "Returns production-ready Python code with error handling.",
             args_schema=CodeGenerationInput,
             return_direct=False,
         ),
@@ -899,7 +1053,7 @@ def create_mlpatrol_tools() -> List[StructuredTool]:
             func=huggingface_search_impl,
             name="huggingface_search",
             description="Search HuggingFace Hub for datasets and models. Use when users ask about finding datasets, "
-                        "models, or resources on HuggingFace. Returns links and metadata.",
+            "models, or resources on HuggingFace. Returns links and metadata.",
             args_schema=HuggingFaceSearchInput,
             return_direct=False,
         ),
@@ -924,27 +1078,56 @@ def parse_cve_results(tool_output: str) -> List[CVEResult]:
         List of CVEResult objects
     """
     try:
+        if not tool_output or not tool_output.strip():
+            logger.warning("Empty tool output for CVE search")
+            return []
+
         data = json.loads(tool_output)
+
+        if not isinstance(data, dict):
+            logger.error(f"Invalid CVE tool output format: expected dict, got {type(data).__name__}")
+            return []
+
         if data.get("status") != "success":
+            error_msg = data.get("message", "Unknown error")
+            logger.warning(f"CVE search returned non-success status: {error_msg}")
+            return []
+
+        cves_data = data.get("cves", [])
+        if not isinstance(cves_data, list):
+            logger.error(f"Invalid CVEs format: expected list, got {type(cves_data).__name__}")
             return []
 
         cves = []
-        for cve_dict in data.get("cves", []):
-            cve = CVEResult(
-                cve_id=cve_dict.get("cve_id", "UNKNOWN"),
-                description=cve_dict.get("description", ""),
-                cvss_score=cve_dict.get("cvss_score", 0.0),
-                severity=cve_dict.get("severity", "UNKNOWN"),
-                affected_versions=cve_dict.get("affected_versions", []),
-                published_date=cve_dict.get("published_date", ""),
-                references=cve_dict.get("references", []),
-                library=cve_dict.get("library", ""),
-            )
-            cves.append(cve)
+        for i, cve_dict in enumerate(cves_data):
+            try:
+                if not isinstance(cve_dict, dict):
+                    logger.warning(f"Skipping CVE entry {i}: not a dict")
+                    continue
+
+                cve = CVEResult(
+                    cve_id=cve_dict.get("cve_id", "UNKNOWN"),
+                    description=cve_dict.get("description", ""),
+                    cvss_score=float(cve_dict.get("cvss_score", 0.0)),
+                    severity=cve_dict.get("severity", "UNKNOWN"),
+                    affected_versions=cve_dict.get("affected_versions", []),
+                    published_date=cve_dict.get("published_date", ""),
+                    references=cve_dict.get("references", []),
+                    library=cve_dict.get("library", ""),
+                )
+                cves.append(cve)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse CVE entry {i}: {e}")
+                continue
 
         return cves
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse CVE results as JSON: {e}")
+        logger.debug(f"Tool output was: {tool_output[:200]}")
+        return []
     except Exception as e:
-        logger.error(f"Failed to parse CVE results: {e}")
+        logger.error(f"Unexpected error parsing CVE results: {e}", exc_info=True)
         return []
 
 
@@ -958,25 +1141,58 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
         DatasetAnalysisResult object or None if parsing fails
     """
     try:
-        data = json.loads(tool_output)
-        if data.get("status") != "success":
+        if not tool_output or not tool_output.strip():
+            logger.warning("Empty tool output for dataset analysis")
             return None
+
+        data = json.loads(tool_output)
+
+        if not isinstance(data, dict):
+            logger.error(f"Invalid dataset analysis output format: expected dict, got {type(data).__name__}")
+            return None
+
+        if data.get("status") != "success":
+            error_msg = data.get("message", "Unknown error")
+            logger.warning(f"Dataset analysis returned non-success status: {error_msg}")
+            return None
+
+        # Ensure class_distribution is a dict with proper types
+        class_dist = data.get("class_distribution", {})
+        if not isinstance(class_dist, dict):
+            logger.warning(f"Invalid class_distribution type: {type(class_dist).__name__}, using empty dict")
+            class_dist = {}
 
         return DatasetAnalysisResult(
             num_rows=data.get("num_rows", 0),
             num_features=data.get("num_features", 0),
-            outliers=data.get("outliers_sample", []),
+            outliers=data.get("outliers", data.get("outliers_sample", [])),
             outlier_count=data.get("outlier_count", 0),
             class_distribution=data.get("class_distribution", {}),
             suspected_poisoning=data.get("suspected_poisoning", False),
             poisoning_confidence=data.get("poisoning_confidence", 0.0),
             bias_score=data.get("bias_score", 0.0),
             quality_score=data.get("quality_score", 0.0),
+            num_rows=int(data.get("num_rows", 0)),
+            num_features=int(data.get("num_features", 0)),
+            outliers=data.get("outliers_sample", data.get("outliers", [])),
+            outlier_count=int(data.get("outlier_count", 0)),
+            class_distribution=class_dist,
+            suspected_poisoning=bool(data.get("suspected_poisoning", False)),
+            poisoning_confidence=float(data.get("poisoning_confidence", 0.0)),
+            bias_score=float(data.get("bias_score", 0.0)),
+            quality_score=float(data.get("quality_score", 0.0)),
             recommendations=data.get("recommendations", []),
+            stat_tests=data.get("stat_tests", {}),
+            dataset_summary=data.get("dataset_summary", {}),
         )
-    except Exception as e:
-        logger.error(f"Failed to parse dataset analysis: {e}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse dataset analysis as JSON: {e}")
+        logger.debug(f"Tool output was: {tool_output[:200]}")
         return None
-
-
-
+    except (ValueError, TypeError) as e:
+        logger.error(f"Type conversion error in dataset analysis: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error parsing dataset analysis: {e}", exc_info=True)
+        return None
