@@ -12,8 +12,21 @@ from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
 
-from langgraph.prebuilt import create_react_agent
-from langgraph.graph import StateGraph, END
+try:
+    # Prefer the legacy langgraph helper if available since it accepts the
+    # existing `prompt` argument used by this codebase. Fall back to the newer
+    # langchain.agents.create_agent only if the legacy helper is not available.
+    from langgraph.prebuilt import create_react_agent  # type: ignore
+    from langgraph.graph import StateGraph, END
+except Exception:
+    try:
+        from langchain.agents import create_agent as create_react_agent  # type: ignore
+        from langgraph.graph import StateGraph, END
+    except Exception:
+        # If neither import is available, keep names defined as None and allow
+        # the setup logic to raise a clear error when attempting to use them.
+        create_react_agent = None  # type: ignore
+        from langgraph.graph import StateGraph, END
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
@@ -81,7 +94,9 @@ class ReasoningStep:
             "thought": self.thought,
             "action": self.action,
             "action_input": self.action_input,
-            "observation": self.observation[:500] + "..." if len(self.observation) > 500 else self.observation,
+            "observation": self.observation[:500] + "..."
+            if len(self.observation) > 500
+            else self.observation,
             "timestamp": self.timestamp,
             "duration_ms": round(self.duration_ms, 2),
         }
@@ -160,6 +175,7 @@ class AgentState(TypedDict):
         tools_used: List of tool names used
         context: Additional context (files, datasets, etc.)
     """
+
     messages: List[BaseMessage]
     query_type: Optional[str]
     reasoning_steps: List[Dict[str, Any]]
@@ -265,13 +281,63 @@ class MLPatrolAgent:
             # Extract the system message content from the prompt template
             system_message = None
             for msg in system_prompt.messages:
-                if hasattr(msg, 'prompt') and hasattr(msg.prompt, 'template'):
-                    if 'MLPatrol' in msg.prompt.template:
+                if hasattr(msg, "prompt") and hasattr(msg.prompt, "template"):
+                    if "MLPatrol" in msg.prompt.template:
                         system_message = msg.prompt.template
                         break
 
             if not system_message:
                 # Fallback to a basic system prompt
+                system_message = (
+                    "You are MLPatrol, an expert AI security agent for ML systems."
+                )
+
+            # Create the ReAct agent using the available agent factory.
+            # Different langgraph/langchain versions expose different helper
+            # signatures. Inspect the callable signature and map our
+            # arguments to the accepted parameter names to maintain
+            # compatibility and avoid deprecation warnings.
+            if create_react_agent is None:
+                raise AgentError(
+                    "No agent factory available (create_react_agent is not imported)"
+                )
+
+            try:
+                import inspect
+
+                sig = inspect.signature(create_react_agent)
+                params = sig.parameters
+
+                agent_kwargs = {}
+                # Map model/llm param
+                if "model" in params:
+                    agent_kwargs["model"] = self.llm
+                elif "llm" in params:
+                    agent_kwargs["llm"] = self.llm
+
+                # Map tools
+                if "tools" in params:
+                    agent_kwargs["tools"] = self.tools
+
+                # Map prompt/system message where available
+                if "prompt" in params:
+                    agent_kwargs["prompt"] = system_message
+                elif "system_message" in params:
+                    agent_kwargs["system_message"] = system_message
+                elif "system_prompt" in params:
+                    agent_kwargs["system_prompt"] = system_message
+
+                # Call the factory with adapted kwargs
+                self.agent_executor = create_react_agent(**agent_kwargs)
+
+            except TypeError:
+                # As a last resort, try the legacy call signature that was
+                # used historically. This keeps maximal backward compatibility.
+                self.agent_executor = create_react_agent(
+                    model=self.llm,
+                    tools=self.tools,
+                    prompt=system_message,
+                )
                 system_message = "You are MLPatrol, an expert AI security agent for ML systems."
 
             # Create the ReAct agent using LangGraph's prebuilt function
@@ -288,7 +354,9 @@ class MLPatrolAgent:
             logger.error(f"Failed to setup agent: {e}", exc_info=True)
             raise AgentError(f"Agent setup failed: {e}")
 
-    def analyze_query(self, query: str, context: Optional[Dict[str, Any]] = None) -> QueryType:
+    def analyze_query(
+        self, query: str, context: Optional[Dict[str, Any]] = None
+    ) -> QueryType:
         """Classify the type of security query using LLM.
 
         Args:
@@ -304,14 +372,15 @@ class MLPatrolAgent:
         context_str = str(context) if context else "None"
 
         try:
-            prompt_value = get_classification_prompt().invoke({
-                "query": query,
-                "context": context_str
-            })
+            prompt_value = get_classification_prompt().invoke(
+                {"query": query, "context": context_str}
+            )
             response = self.llm.invoke(prompt_value.to_messages())
         except Exception as e:
             logger.error(f"Query classification failed: {e}", exc_info=True)
-            raise QueryClassificationError("LLM-based query classification failed") from e
+            raise QueryClassificationError(
+                "LLM-based query classification failed"
+            ) from e
 
         # Parse response
         content = getattr(response, "content", response)
@@ -330,22 +399,42 @@ class MLPatrolAgent:
             return QueryType.GENERAL_SECURITY
 
         # Fallback to regex if LLM returns something unexpected
-        logger.warning(f"LLM returned unexpected classification: {content}. Falling back to pattern matching.")
+        logger.warning(
+            f"LLM returned unexpected classification: {content}. Falling back to pattern matching."
+        )
         return self._analyze_query_regex(query, context)
 
-    def _analyze_query_regex(self, query: str, context: Optional[Dict[str, Any]] = None) -> QueryType:
+    def _analyze_query_regex(
+        self, query: str, context: Optional[Dict[str, Any]] = None
+    ) -> QueryType:
         """Fallback regex-based classification."""
         query_lower = query.lower()
 
         # CVE/vulnerability keywords
         cve_keywords = [
-            "cve", "vulnerability", "vulnerabilities", "security",
-            "exploit", "patch", "nvd", "advisory", "threat"
+            "cve",
+            "vulnerability",
+            "vulnerabilities",
+            "security",
+            "exploit",
+            "patch",
+            "nvd",
+            "advisory",
+            "threat",
         ]
         library_keywords = [
-            "numpy", "pytorch", "tensorflow", "sklearn", "scikit-learn",
-            "pandas", "scipy", "keras", "xgboost", "lightgbm",
-            "transformers", "huggingface"
+            "numpy",
+            "pytorch",
+            "tensorflow",
+            "sklearn",
+            "scikit-learn",
+            "pandas",
+            "scipy",
+            "keras",
+            "xgboost",
+            "lightgbm",
+            "transformers",
+            "huggingface",
         ]
 
         # Check for CVE monitoring queries
@@ -357,8 +446,16 @@ class MLPatrolAgent:
 
         # Dataset analysis keywords
         dataset_keywords = [
-            "dataset", "data", "poisoning", "bias", "outlier",
-            "csv", "analyze", "statistical", "quality", "distribution"
+            "dataset",
+            "data",
+            "poisoning",
+            "bias",
+            "outlier",
+            "csv",
+            "analyze",
+            "statistical",
+            "quality",
+            "distribution",
         ]
 
         has_dataset_keyword = any(kw in query_lower for kw in dataset_keywords)
@@ -369,8 +466,15 @@ class MLPatrolAgent:
 
         # Code generation keywords
         code_keywords = [
-            "generate", "code", "script", "validation", "check",
-            "create", "write", "validation code", "security check"
+            "generate",
+            "code",
+            "script",
+            "validation",
+            "check",
+            "create",
+            "write",
+            "validation code",
+            "security check",
         ]
         security_keywords = ["security", "validate", "cve", "verify", "test"]
 
@@ -429,27 +533,33 @@ class MLPatrolAgent:
         step_num = 0
 
         for msg in messages:
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
                 # This is a tool call message
                 for tool_call in msg.tool_calls:
                     step_num += 1
                     step = ReasoningStep(
                         step_number=step_num,
                         thought="",  # LangGraph doesn't expose explicit thoughts
-                        action=tool_call.get('name', 'unknown'),
-                        action_input=tool_call.get('args', {}),
+                        action=tool_call.get("name", "unknown"),
+                        action_input=tool_call.get("args", {}),
                         observation="",  # Will be filled from next message
                         timestamp=time.time(),
                     )
                     reasoning_steps.append(step)
 
-            elif hasattr(msg, 'content') and reasoning_steps and not reasoning_steps[-1].observation:
+            elif (
+                hasattr(msg, "content")
+                and reasoning_steps
+                and not reasoning_steps[-1].observation
+            ):
                 # This might be a tool response
                 reasoning_steps[-1].observation = str(msg.content)
 
         if self.verbose:
             for step in reasoning_steps:
-                logger.info(f"Step {step.step_number}: {step.action}({step.action_input})")
+                logger.info(
+                    f"Step {step.step_number}: {step.action}({step.action_input})"
+                )
 
         return reasoning_steps
 
@@ -501,7 +611,8 @@ class MLPatrolAgent:
         error_count = sum(
             1
             for step in reasoning_steps
-            if "error" in step.observation.lower() or "failed" in step.observation.lower()
+            if "error" in step.observation.lower()
+            or "failed" in step.observation.lower()
         )
 
         if error_count > 0:
@@ -594,8 +705,7 @@ class MLPatrolAgent:
                 )
 
                 result = self.agent_executor.invoke(
-                    {"messages": messages_with_query},
-                    config=config
+                    {"messages": messages_with_query}, config=config
                 )
 
             except Exception as e:
@@ -609,7 +719,7 @@ class MLPatrolAgent:
 
             # Step 5: Extract answer and reasoning steps from LangGraph output
             output_messages = result.get("messages", [])
-            
+
             # Extract reasoning steps first (needed for fallback answer)
             reasoning_steps = self._extract_reasoning_steps(output_messages)
 
@@ -618,7 +728,7 @@ class MLPatrolAgent:
             for msg in reversed(output_messages):
                 if isinstance(msg, AIMessage):
                     # Skip messages that only contain tool calls without text content
-                    has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+                    has_tool_calls = hasattr(msg, "tool_calls") and msg.tool_calls
                     content_str = str(msg.content).strip() if msg.content else ""
 
                     # Check if content looks like tool call JSON (common patterns)
@@ -627,13 +737,30 @@ class MLPatrolAgent:
                     ) or content_str.startswith('{"name"')
 
                     # Prefer messages with actual text content (not tool call JSON)
-                    if content_str and not looks_like_tool_call and len(content_str) > 20:
+                    if (
+                        content_str
+                        and not looks_like_tool_call
+                        and len(content_str) > 20
+                    ):
                         answer = content_str
                         break
                     # If we only have tool calls, skip this message
                     elif has_tool_calls and (not content_str or looks_like_tool_call):
                         continue
 
+            # If we still don't have a good answer but have tool results, synthesize one
+            if answer == "I couldn't generate a response." or len(answer) < 20:
+                if reasoning_steps:
+                    # Build a summary from tool results
+                    tool_summaries = []
+                    for step in reasoning_steps:
+                        if step.observation and len(step.observation) > 20:
+                            tool_summaries.append(f"Completed {step.action} analysis.")
+                    if tool_summaries:
+                        answer = (
+                            "I've completed the analysis using the following tools: "
+                            + ", ".join(tool_summaries[:3])
+                        )
             # If we didn't find an answer, synthesize one from tool results
             if not answer:
                 if reasoning_steps:
@@ -890,7 +1017,9 @@ def demo_agent() -> None:
         base_url = None
 
         if not api_key:
-            print("ERROR: Please set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable")
+            print(
+                "ERROR: Please set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable"
+            )
             print("OR set USE_LOCAL_LLM=true to use Ollama")
             return
 
@@ -901,7 +1030,9 @@ def demo_agent() -> None:
     print()
 
     try:
-        agent = create_mlpatrol_agent(api_key=api_key, model=model, base_url=base_url, verbose=True)
+        agent = create_mlpatrol_agent(
+            api_key=api_key, model=model, base_url=base_url, verbose=True
+        )
 
         # Example queries
         example_queries = [
@@ -934,7 +1065,9 @@ def demo_agent() -> None:
             print("\nANSWER:")
             print(result.answer)
             print()
-            print(f"Query Type: {result.query_type.value if result.query_type else 'unknown'}")
+            print(
+                f"Query Type: {result.query_type.value if result.query_type else 'unknown'}"
+            )
             print(f"Confidence: {result.confidence:.2%}")
             print(f"Tools Used: {', '.join(result.tools_used)}")
             print(f"Duration: {result.total_duration_ms:.0f}ms")

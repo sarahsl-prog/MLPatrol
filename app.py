@@ -53,10 +53,7 @@ validate_and_exit_on_error()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("mlpatrol.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.FileHandler("mlpatrol.log"), logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
@@ -91,15 +88,16 @@ ALLOWED_FILE_TYPES = [".csv"]
 # Theme colors
 THEME_COLORS = {
     "critical": "#dc2626",  # Red
-    "high": "#ea580c",      # Orange
-    "medium": "#eab308",    # Yellow
-    "low": "#22c55e",       # Green
-    "unknown": "#6b7280",   # Gray
+    "high": "#ea580c",  # Orange
+    "medium": "#eab308",  # Yellow
+    "low": "#22c55e",  # Green
+    "unknown": "#6b7280",  # Gray
 }
 
 # ============================================================================
 # Global Agent State
 # ============================================================================
+
 
 class AgentState:
     """Thread-safe singleton class to manage the MLPatrol agent instance.
@@ -108,6 +106,7 @@ class AgentState:
     all user interactions for better performance. Thread safety is crucial
     since Gradio can handle multiple concurrent requests.
     """
+
     _instance: Optional[MLPatrolAgent] = None
     _initialized: bool = False
     _error: Optional[str] = None
@@ -151,7 +150,7 @@ class AgentState:
                     base_url=base_url,
                     verbose=True,
                     max_iterations=10,
-                    max_execution_time=180
+                    max_execution_time=180,
                 )
 
                 logger.info(f"Agent initialized successfully with local model: {model}")
@@ -159,12 +158,12 @@ class AgentState:
 
                 # Store LLM info
                 cls._llm_info = {
-                    'provider': 'local',
-                    'model': model.replace('ollama/', ''),
-                    'type': 'ollama',
-                    'display_name': f"{model.replace('ollama/', '')} (Local - Ollama)",
-                    'url': base_url,
-                    'status': 'connected'
+                    "provider": "local",
+                    "model": model.replace("ollama/", ""),
+                    "type": "ollama",
+                    "display_name": f"{model.replace('ollama/', '')} (Local - Ollama)",
+                    "url": base_url,
+                    "status": "connected",
                 }
 
             else:
@@ -191,7 +190,7 @@ class AgentState:
                     model=model,
                     verbose=True,
                     max_iterations=10,
-                    max_execution_time=180
+                    max_execution_time=180,
                 )
 
             logger.info(f"Agent initialized successfully with model: {model}")
@@ -213,11 +212,11 @@ class AgentState:
                 llm_type = "openai"
 
             cls._llm_info = {
-                'provider': 'cloud',
-                'model': model,
-                'type': llm_type,
-                'display_name': f"{model} (Cloud - {provider_name})",
-                'status': 'connected'
+                "provider": "cloud",
+                "model": model,
+                "type": llm_type,
+                "display_name": f"{model} (Cloud - {provider_name})",
+                "status": "connected",
             }
 
         except Exception as e:
@@ -225,11 +224,11 @@ class AgentState:
             logger.error(f"Agent initialization failed: {e}", exc_info=True)
             # Set error status
             cls._llm_info = {
-                'provider': 'unknown',
-                'model': 'unknown',
-                'type': 'unknown',
-                'display_name': 'Not Connected',
-                'status': 'error'
+                "provider": "unknown",
+                "model": "unknown",
+                "type": "unknown",
+                "display_name": "Not Connected",
+                "status": "error",
             }
         finally:
             cls._initialized = True
@@ -280,10 +279,10 @@ class AgentState:
 
         if not enabled:
             return {
-                'enabled': False,
-                'providers': [],
-                'status': 'disabled',
-                'display_text': 'Web Search: Disabled'
+                "enabled": False,
+                "providers": [],
+                "status": "disabled",
+                "display_text": "Web Search: Disabled",
             }
 
         use_tavily = os.getenv("USE_TAVILY_SEARCH", "false").lower() == "true"
@@ -297,10 +296,10 @@ class AgentState:
 
         if not providers:
             return {
-                'enabled': True,
-                'providers': [],
-                'status': 'not_configured',
-                'display_text': 'Web Search: Not Configured'
+                "enabled": True,
+                "providers": [],
+                "status": "not_configured",
+                "display_text": "Web Search: Not Configured",
             }
 
         # Check if API keys are set
@@ -315,23 +314,25 @@ class AgentState:
 
         if not active_providers:
             return {
-                'enabled': True,
-                'providers': providers,
-                'status': 'not_configured',
-                'display_text': f"Web Search: {', '.join(providers)} (API keys needed)"
+                "enabled": True,
+                "providers": providers,
+                "status": "not_configured",
+                "display_text": f"Web Search: {', '.join(providers)} (API keys needed)",
             }
 
         provider_text = " + ".join(active_providers)
         return {
-            'enabled': True,
-            'providers': active_providers,
-            'status': 'active',
-            'display_text': f"Web Search: {provider_text}"
+            "enabled": True,
+            "providers": active_providers,
+            "status": "active",
+            "display_text": f"Web Search: {provider_text}",
         }
+
 
 # ============================================================================
 # Validation and Security Functions
 # ============================================================================
+
 
 def validate_file_upload(file_path: str) -> Tuple[bool, Optional[str]]:
     """Validate uploaded file for security and format.
@@ -372,6 +373,7 @@ def validate_file_upload(file_path: str) -> Tuple[bool, Optional[str]]:
         logger.error(f"File validation error: {e}", exc_info=True)
         return False, f"Validation error: {str(e)}"
 
+
 def sanitize_input(text: str, max_length: int = 1000) -> str:
     """Sanitize user input to prevent injection attacks.
 
@@ -395,9 +397,11 @@ def sanitize_input(text: str, max_length: int = 1000) -> str:
 
     return text.strip()
 
+
 # ============================================================================
 # Visualization Functions
 # ============================================================================
+
 
 def create_cve_severity_chart(cves: List[Dict[str, Any]]) -> go.Figure:
     """Create a bar chart showing CVE severity distribution.
@@ -418,16 +422,20 @@ def create_cve_severity_chart(cves: List[Dict[str, Any]]) -> go.Figure:
         severity_counts[severity] = severity_counts.get(severity, 0) + 1
 
     # Create bar chart
-    fig = go.Figure(data=[
-        go.Bar(
-            x=list(severity_counts.keys()),
-            y=list(severity_counts.values()),
-            marker_color=[THEME_COLORS.get(s.lower(), THEME_COLORS["unknown"])
-                         for s in severity_counts.keys()],
-            text=list(severity_counts.values()),
-            textposition="auto",
-        )
-    ])
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=list(severity_counts.keys()),
+                y=list(severity_counts.values()),
+                marker_color=[
+                    THEME_COLORS.get(s.lower(), THEME_COLORS["unknown"])
+                    for s in severity_counts.keys()
+                ],
+                text=list(severity_counts.values()),
+                textposition="auto",
+            )
+        ]
+    )
 
     fig.update_layout(
         title="CVE Severity Distribution",
@@ -438,6 +446,7 @@ def create_cve_severity_chart(cves: List[Dict[str, Any]]) -> go.Figure:
     )
 
     return fig
+
 
 def create_class_distribution_chart(distribution: Dict[str, float]) -> go.Figure:
     """Create a pie chart showing class distribution.
@@ -454,14 +463,16 @@ def create_class_distribution_chart(distribution: Dict[str, float]) -> go.Figure
     labels = list(distribution.keys())
     values = [distribution[k] * 100 for k in labels]  # Convert to percentages
 
-    fig = go.Figure(data=[
-        go.Pie(
-            labels=labels,
-            values=values,
-            textinfo='label+percent',
-            hovertemplate='<b>%{label}</b><br>%{percent}<extra></extra>',
-        )
-    ])
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=labels,
+                values=values,
+                textinfo="label+percent",
+                hovertemplate="<b>%{label}</b><br>%{percent}<extra></extra>",
+            )
+        ]
+    )
 
     fig.update_layout(
         title="Class Distribution",
@@ -470,6 +481,7 @@ def create_class_distribution_chart(distribution: Dict[str, float]) -> go.Figure
     )
 
     return fig
+
 
 def create_quality_gauge(score: float) -> go.Figure:
     """Create a gauge chart showing dataset quality score.
@@ -490,38 +502,39 @@ def create_quality_gauge(score: float) -> go.Figure:
     else:
         color = THEME_COLORS["critical"]  # Red for poor quality
 
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=score,
-        title={'text': "Dataset Quality Score"},
-        domain={'x': [0, 1], 'y': [0, 1]},
-        gauge={
-            'axis': {'range': [0, 10]},
-            'bar': {'color': color},
-            'steps': [
-                {'range': [0, 4], 'color': "rgba(220, 38, 38, 0.2)"},
-                {'range': [4, 6], 'color': "rgba(234, 88, 12, 0.2)"},
-                {'range': [6, 8], 'color': "rgba(234, 179, 8, 0.2)"},
-                {'range': [8, 10], 'color': "rgba(34, 197, 94, 0.2)"},
-            ],
-            'threshold': {
-                'line': {'color': "black", 'width': 4},
-                'thickness': 0.75,
-                'value': score
-            }
-        }
-    ))
-
-    fig.update_layout(
-        height=250,
-        margin=dict(l=20, r=20, t=40, b=20)
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=score,
+            title={"text": "Dataset Quality Score"},
+            domain={"x": [0, 1], "y": [0, 1]},
+            gauge={
+                "axis": {"range": [0, 10]},
+                "bar": {"color": color},
+                "steps": [
+                    {"range": [0, 4], "color": "rgba(220, 38, 38, 0.2)"},
+                    {"range": [4, 6], "color": "rgba(234, 88, 12, 0.2)"},
+                    {"range": [6, 8], "color": "rgba(234, 179, 8, 0.2)"},
+                    {"range": [8, 10], "color": "rgba(34, 197, 94, 0.2)"},
+                ],
+                "threshold": {
+                    "line": {"color": "black", "width": 4},
+                    "thickness": 0.75,
+                    "value": score,
+                },
+            },
+        )
     )
 
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+
     return fig
+
 
 # ============================================================================
 # Result Formatting Functions
 # ============================================================================
+
 
 def format_reasoning_steps(agent_result: AgentResult) -> str:
     """Format reasoning steps as HTML for display.
@@ -552,6 +565,7 @@ def format_reasoning_steps(agent_result: AgentResult) -> str:
 
     return "\n".join(html_parts)
 
+
 def format_agent_answer(answer: str) -> str:
     """Format agent answer with markdown support and proper HTML structure.
 
@@ -568,11 +582,11 @@ def format_agent_answer(answer: str) -> str:
     html_content = markdown.markdown(
         answer,
         extensions=[
-            'fenced_code',  # Support for ```code blocks```
-            'tables',       # Support for markdown tables
-            'nl2br',        # Convert newlines to <br>
-            'sane_lists'    # Better list handling
-        ]
+            "fenced_code",  # Support for ```code blocks```
+            "tables",  # Support for markdown tables
+            "nl2br",  # Convert newlines to <br>
+            "sane_lists",  # Better list handling
+        ],
     )
 
     # Wrap in a styled container
@@ -583,6 +597,7 @@ def format_agent_answer(answer: str) -> str:
     """
 
     return formatted_html
+
 
 def format_cve_results(cves: List[Dict[str, Any]]) -> str:
     """Format CVE results as HTML table.
@@ -615,12 +630,12 @@ def format_cve_results(cves: List[Dict[str, Any]]) -> str:
 
         html += f"""
         <tr>
-            <td style='padding: 8px; border: 1px solid #ddd;'><strong>{cve.get('cve_id', 'N/A')}</strong></td>
+            <td style='padding: 8px; border: 1px solid #ddd;'><strong>{cve.get("cve_id", "N/A")}</strong></td>
             <td style='padding: 8px; border: 1px solid #ddd; background-color: {color}; color: white;'>
                 <strong>{severity}</strong>
             </td>
-            <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get('cvss_score', 'N/A')}</td>
-            <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get('description', 'No description')[:200]}...</td>
+            <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get("cvss_score", "N/A")}</td>
+            <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get("description", "No description")[:200]}...</td>
         </tr>
         """
 
@@ -630,6 +645,7 @@ def format_cve_results(cves: List[Dict[str, Any]]) -> str:
     """
 
     return html
+
 
 def format_dataset_analysis(analysis: Dict[str, Any]) -> str:
     """Format dataset analysis results as HTML.
@@ -644,9 +660,9 @@ def format_dataset_analysis(analysis: Dict[str, Any]) -> str:
     <div class='analysis-results'>
         <h3>Dataset Overview</h3>
         <ul>
-            <li><strong>Rows:</strong> {analysis.get('num_rows', 'N/A'):,}</li>
-            <li><strong>Features:</strong> {analysis.get('num_features', 'N/A')}</li>
-            <li><strong>Outliers Detected:</strong> {analysis.get('outlier_count', 'N/A')}</li>
+            <li><strong>Rows:</strong> {analysis.get("num_rows", "N/A"):,}</li>
+            <li><strong>Features:</strong> {analysis.get("num_features", "N/A")}</li>
+            <li><strong>Outliers Detected:</strong> {analysis.get("outlier_count", "N/A")}</li>
         </ul>
 
         <h3>Security Assessment</h3>
@@ -656,9 +672,9 @@ def format_dataset_analysis(analysis: Dict[str, Any]) -> str:
                     {"⚠️ YES" if analysis.get("suspected_poisoning") else "✓ NO"}
                 </span>
             </li>
-            <li><strong>Poisoning Confidence:</strong> {analysis.get('poisoning_confidence', 0) * 100:.1f}%</li>
-            <li><strong>Bias Score:</strong> {analysis.get('bias_score', 0):.2f}</li>
-            <li><strong>Quality Score:</strong> {analysis.get('quality_score', 0):.1f}/10</li>
+            <li><strong>Poisoning Confidence:</strong> {analysis.get("poisoning_confidence", 0) * 100:.1f}%</li>
+            <li><strong>Bias Score:</strong> {analysis.get("bias_score", 0):.2f}</li>
+            <li><strong>Quality Score:</strong> {analysis.get("quality_score", 0):.1f}/10</li>
         </ul>
 
         <h3>Recommendations</h3>
@@ -675,14 +691,14 @@ def format_dataset_analysis(analysis: Dict[str, Any]) -> str:
 
     return html
 
+
 # ============================================================================
 # Main Handler Functions
 # ============================================================================
 
+
 def handle_cve_search(
-    library: str,
-    days_back: int,
-    progress=gr.Progress()
+    library: str, days_back: int, progress=gr.Progress()
 ) -> Tuple[str, str, Any, str]:
     """Handle CVE search request.
 
@@ -755,9 +771,9 @@ def handle_cve_search(
         error_msg = f"❌ Error: {str(e)}"
         return error_msg, f"<p style='color: red;'>{error_msg}</p>", None, ""
 
+
 def handle_dataset_analysis(
-    file,
-    progress=gr.Progress()
+    file, progress=gr.Progress()
 ) -> Tuple[str, str, Any, Any, str]:
     """Handle dataset analysis request.
 
@@ -778,7 +794,13 @@ def handle_dataset_analysis(
         # Validate file
         is_valid, error_msg = validate_file_upload(file.name)
         if not is_valid:
-            return f"❌ {error_msg}", f"<p style='color: red;'>{error_msg}</p>", None, None, ""
+            return (
+                f"❌ {error_msg}",
+                f"<p style='color: red;'>{error_msg}</p>",
+                None,
+                None,
+                "",
+            )
 
         progress(0.2, desc="Initializing agent...")
 
@@ -848,11 +870,9 @@ def handle_dataset_analysis(
         error_msg = f"❌ Error: {str(e)}"
         return error_msg, f"<p style='color: red;'>{error_msg}</p>", None, None, ""
 
+
 def handle_code_generation(
-    purpose: str,
-    library: str,
-    cve_id: str,
-    progress=gr.Progress()
+    purpose: str, library: str, cve_id: str, progress=gr.Progress()
 ) -> Tuple[str, str, str, str]:
     """Handle security code generation request.
 
@@ -926,10 +946,9 @@ def handle_code_generation(
         error_msg = f"❌ Error: {str(e)}"
         return error_msg, "", "", ""
 
+
 def handle_chat(
-    message: str,
-    history: List[List[str]],
-    progress=gr.Progress()
+    message: str, history: List[List[str]], progress=gr.Progress()
 ) -> Tuple[List[List[str]], str, str]:
     """Handle general security chat.
 
@@ -982,9 +1001,11 @@ def handle_chat(
         history.append([message, f"I encountered an error: {str(e)}"])
         return history, "", error_msg
 
+
 # ============================================================================
 # Gradio Interface
 # ============================================================================
+
 
 def create_interface() -> gr.Blocks:
     """Create the main Gradio interface.
@@ -1147,9 +1168,8 @@ def create_interface() -> gr.Blocks:
             border-top: 1px solid #e5e7eb;
             margin: 20px 0;
         }
-        """
+        """,
     ) as interface:
-
         # Header
         if LOGO_PATH.exists():
             gr.Image(
@@ -1157,15 +1177,15 @@ def create_interface() -> gr.Blocks:
                 show_label=False,
                 height=140,
                 interactive=False,
-                elem_id="mlpatrol-logo"
+                elem_id="mlpatrol-logo",
             )
         gr.Markdown(f"# {APP_TITLE}")
         gr.Markdown(APP_DESCRIPTION)
 
         # Display LLM Status
         llm_info = AgentState.get_llm_info()
-        if llm_info and llm_info['status'] == 'connected':
-            if llm_info['provider'] == 'local':
+        if llm_info and llm_info["status"] == "connected":
+            if llm_info["provider"] == "local":
                 status_icon = "🔵"  # Blue for local
                 status_color = "#3b82f6"  # Blue
                 privacy_note = " • 100% Private"
@@ -1176,10 +1196,10 @@ def create_interface() -> gr.Blocks:
 
             gr.Markdown(f"""
 <div style="background-color: #f0f9ff; border-left: 4px solid {status_color}; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
-    <strong>{status_icon} LLM Status:</strong> Using <code>{llm_info['display_name']}</code>{privacy_note}
+    <strong>{status_icon} LLM Status:</strong> Using <code>{llm_info["display_name"]}</code>{privacy_note}
 </div>
             """)
-        elif llm_info and llm_info['status'] == 'error':
+        elif llm_info and llm_info["status"] == "error":
             gr.Markdown("""
 <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>🔴 LLM Status:</strong> Not Connected - Check configuration
@@ -1188,22 +1208,24 @@ def create_interface() -> gr.Blocks:
 
         # Display Web Search Status
         web_search_info = AgentState.get_web_search_info()
-        if web_search_info['status'] == 'active':
+        if web_search_info["status"] == "active":
             # Active providers - show in green/blue
-            providers_text = " + ".join([f"<code>{p}</code>" for p in web_search_info['providers']])
+            providers_text = " + ".join(
+                [f"<code>{p}</code>" for p in web_search_info["providers"]]
+            )
             gr.Markdown(f"""
 <div style="background-color: #f0fdf4; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>🔍 Web Search:</strong> {providers_text} • Privacy-focused
 </div>
             """)
-        elif web_search_info['status'] == 'not_configured':
+        elif web_search_info["status"] == "not_configured":
             # Enabled but no API keys
             gr.Markdown(f"""
 <div style="background-color: #fffbeb; border-left: 4px solid #eab308; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>⚠️ Web Search:</strong> Not configured - Add API keys to .env
 </div>
             """)
-        elif web_search_info['status'] == 'disabled':
+        elif web_search_info["status"] == "disabled":
             # Disabled
             gr.Markdown("""
 <div style="background-color: #f3f4f6; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
@@ -1224,7 +1246,6 @@ def create_interface() -> gr.Blocks:
 
         # Main tabs
         with gr.Tabs() as tabs:
-
             # ================================================================
             # Tab 1: CVE Monitoring
             # ================================================================
@@ -1240,7 +1261,7 @@ def create_interface() -> gr.Blocks:
                             choices=SUPPORTED_LIBRARIES,
                             value="numpy",
                             label="Library",
-                            info="Select the ML library to check"
+                            info="Select the ML library to check",
                         )
                         cve_days = gr.Slider(
                             minimum=7,
@@ -1248,15 +1269,15 @@ def create_interface() -> gr.Blocks:
                             value=90,
                             step=7,
                             label="Days to look back",
-                            info="Search for CVEs published in the last N days"
+                            info="Search for CVEs published in the last N days",
                         )
-                        cve_search_btn = gr.Button("🔍 Search for CVEs", variant="primary")
+                        cve_search_btn = gr.Button(
+                            "🔍 Search for CVEs", variant="primary"
+                        )
 
                     with gr.Column(scale=2):
                         cve_status = gr.Textbox(
-                            label="Status",
-                            interactive=False,
-                            show_label=True
+                            label="Status", interactive=False, show_label=True
                         )
                         cve_chart = gr.Plot(label="Severity Distribution")
 
@@ -1269,7 +1290,7 @@ def create_interface() -> gr.Blocks:
                 cve_search_btn.click(
                     fn=handle_cve_search,
                     inputs=[cve_library, cve_days],
-                    outputs=[cve_status, cve_results, cve_chart, cve_reasoning]
+                    outputs=[cve_status, cve_results, cve_chart, cve_reasoning],
                 )
 
             # ================================================================
@@ -1286,9 +1307,11 @@ def create_interface() -> gr.Blocks:
                         dataset_file = gr.File(
                             label="Upload Dataset (CSV)",
                             file_types=[".csv"],
-                            type="filepath"
+                            type="filepath",
                         )
-                        dataset_analyze_btn = gr.Button("🔬 Analyze Dataset", variant="primary")
+                        dataset_analyze_btn = gr.Button(
+                            "🔬 Analyze Dataset", variant="primary"
+                        )
 
                         gr.Markdown(f"""
                         **Requirements:**
@@ -1299,9 +1322,7 @@ def create_interface() -> gr.Blocks:
 
                     with gr.Column(scale=2):
                         dataset_status = gr.Textbox(
-                            label="Status",
-                            interactive=False,
-                            show_label=True
+                            label="Status", interactive=False, show_label=True
                         )
                         with gr.Row():
                             dataset_gauge = gr.Plot(label="Quality Score")
@@ -1316,8 +1337,13 @@ def create_interface() -> gr.Blocks:
                 dataset_analyze_btn.click(
                     fn=handle_dataset_analysis,
                     inputs=[dataset_file],
-                    outputs=[dataset_status, dataset_results, dataset_gauge,
-                            dataset_dist_chart, dataset_reasoning]
+                    outputs=[
+                        dataset_status,
+                        dataset_results,
+                        dataset_gauge,
+                        dataset_dist_chart,
+                        dataset_reasoning,
+                    ],
                 )
 
             # ================================================================
@@ -1335,40 +1361,36 @@ def create_interface() -> gr.Blocks:
                             label="Purpose",
                             placeholder="e.g., Check for CVE vulnerability, validate data integrity",
                             lines=2,
-                            info="Describe what the security script should do"
+                            info="Describe what the security script should do",
                         )
                         code_library = gr.Textbox(
                             label="Target Library",
                             placeholder="e.g., numpy, pytorch, tensorflow",
-                            info="The library to validate"
+                            info="The library to validate",
                         )
                         code_cve_id = gr.Textbox(
                             label="CVE ID (Optional)",
                             placeholder="e.g., CVE-2021-34141",
-                            info="Specific CVE to check (optional)"
+                            info="Specific CVE to check (optional)",
                         )
-                        code_generate_btn = gr.Button("⚡ Generate Code", variant="primary")
+                        code_generate_btn = gr.Button(
+                            "⚡ Generate Code", variant="primary"
+                        )
 
                     with gr.Column(scale=2):
                         code_status = gr.Textbox(
-                            label="Status",
-                            interactive=False,
-                            show_label=True
+                            label="Status", interactive=False, show_label=True
                         )
                         code_filename = gr.Textbox(
-                            label="Suggested Filename",
-                            interactive=False
+                            label="Suggested Filename", interactive=False
                         )
 
                 code_output = gr.Code(
-                    label="Generated Code",
-                    language="python",
-                    lines=20
+                    label="Generated Code", language="python", lines=20
                 )
 
                 code_download_btn = gr.DownloadButton(
-                    label="⬇️ Download Script",
-                    visible=False
+                    label="⬇️ Download Script", visible=False
                 )
 
                 with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
@@ -1378,7 +1400,7 @@ def create_interface() -> gr.Blocks:
                 code_generate_btn.click(
                     fn=handle_code_generation,
                     inputs=[code_purpose, code_library, code_cve_id],
-                    outputs=[code_status, code_output, code_filename, code_reasoning]
+                    outputs=[code_status, code_output, code_filename, code_reasoning],
                 )
 
             # ================================================================
@@ -1393,22 +1415,20 @@ def create_interface() -> gr.Blocks:
                 chat_interface = gr.Chatbot(
                     label="MLPatrol Security Assistant",
                     height=400,
-                    bubble_full_width=False
+                    bubble_full_width=False,
                 )
 
                 with gr.Row():
                     chat_input = gr.Textbox(
                         placeholder="Ask about ML security...",
                         show_label=False,
-                        scale=4
+                        scale=4,
                     )
                     chat_submit = gr.Button("Send", variant="primary", scale=1)
                     chat_clear = gr.Button("Clear", scale=1)
 
                 chat_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    show_label=True
+                    label="Status", interactive=False, show_label=True
                 )
 
                 with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
@@ -1418,26 +1438,22 @@ def create_interface() -> gr.Blocks:
                 chat_submit.click(
                     fn=handle_chat,
                     inputs=[chat_input, chat_interface],
-                    outputs=[chat_interface, chat_reasoning, chat_status]
-                ).then(
-                    lambda: "",
-                    outputs=[chat_input]
-                )
+                    outputs=[chat_interface, chat_reasoning, chat_status],
+                ).then(lambda: "", outputs=[chat_input])
 
                 chat_input.submit(
                     fn=handle_chat,
                     inputs=[chat_input, chat_interface],
-                    outputs=[chat_interface, chat_reasoning, chat_status]
-                ).then(
-                    lambda: "",
-                    outputs=[chat_input]
-                )
+                    outputs=[chat_interface, chat_reasoning, chat_status],
+                ).then(lambda: "", outputs=[chat_input])
 
                 chat_clear.click(
                     lambda: ([], "", ""),
-                    outputs=[chat_interface, chat_reasoning, chat_status]
+                    outputs=[chat_interface, chat_reasoning, chat_status],
                 ).then(
-                    lambda: AgentState.get_agent().clear_history() if AgentState.get_agent() else None
+                    lambda: AgentState.get_agent().clear_history()
+                    if AgentState.get_agent()
+                    else None
                 )
 
         # Footer
@@ -1456,14 +1472,24 @@ def create_interface() -> gr.Blocks:
 
     return interface
 
+
 # ============================================================================
 # Main Entry Point
 # ============================================================================
+
 
 def main():
     """Launch the MLPatrol Gradio application."""
     try:
         logger.info("Starting MLPatrol application...")
+
+        # Runtime dependency check
+        missing = _check_runtime_dependencies()
+        if missing:
+            logger.warning(
+                "Missing optional dependencies: %s. Some features may not work as expected.",
+                ", ".join(missing),
+            )
 
         # Initialize agent in background
         logger.info("Initializing agent...")
@@ -1488,5 +1514,34 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
+
+
+def _check_runtime_dependencies() -> list:
+    """Check for commonly required runtime dependencies and return missing names.
+
+    This is a light-weight check that logs helpful guidance instead of failing
+    hard. It is intended to make developer onboarding and debugging easier.
+    """
+    missing = []
+    required = [
+        ("numpy", "numpy"),
+        ("pandas", "pandas"),
+        ("scipy", "scipy"),
+        ("gradio", "gradio"),
+    ]
+    for pkg_name, import_name in required:
+        try:
+            __import__(import_name)
+        except Exception:
+            missing.append(pkg_name)
+
+    if missing:
+        logger.info(
+            "Runtime dependency check: missing packages: %s. Install with `pip install -r requirements.txt`.",
+            ", ".join(missing),
+        )
+
+    return missing
