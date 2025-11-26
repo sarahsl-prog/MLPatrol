@@ -338,6 +338,15 @@ class MLPatrolAgent:
                     tools=self.tools,
                     prompt=system_message,
                 )
+                system_message = "You are MLPatrol, an expert AI security agent for ML systems."
+
+            # Create the ReAct agent using LangGraph's prebuilt function
+            # As of LangGraph 1.0+, use 'prompt' parameter
+            self.agent_executor = create_react_agent(
+                model=self.llm,
+                tools=self.tools,
+                prompt=system_message,
+            )
 
             logger.info("LangGraph agent configured successfully")
 
@@ -715,7 +724,7 @@ class MLPatrolAgent:
             reasoning_steps = self._extract_reasoning_steps(output_messages)
 
             # Get the final answer (last AI message with actual text content, not just tool calls)
-            answer = "I couldn't generate a response."
+            answer = None
             for msg in reversed(output_messages):
                 if isinstance(msg, AIMessage):
                     # Skip messages that only contain tool calls without text content
@@ -752,10 +761,30 @@ class MLPatrolAgent:
                             "I've completed the analysis using the following tools: "
                             + ", ".join(tool_summaries[:3])
                         )
+            # If we didn't find an answer, synthesize one from tool results
+            if not answer:
+                if reasoning_steps:
+                    # Extract key findings from the most recent tool results
+                    recent_results = []
+                    for step in reversed(reasoning_steps[-3:]):  # Last 3 steps
+                        if step.observation and len(step.observation) > 50:
+                            # Try to extract the first sentence or meaningful content
+                            first_part = step.observation[:300].strip()
+                            if '\n' in first_part:
+                                first_part = first_part.split('\n')[0]
+                            recent_results.append(first_part)
+
+                    if recent_results:
+                        answer = "Based on my analysis:\n\n" + "\n\n".join(recent_results)
                         if len(reasoning_steps) > 3:
-                            answer += f" (and {len(reasoning_steps) - 3} more steps). Please check the reasoning steps for detailed results."
+                            answer += f"\n\n(Analysis completed using {len(reasoning_steps)} steps. See reasoning chain for full details.)"
                     else:
-                        answer = f"I executed {len(reasoning_steps)} analysis step(s). Please check the reasoning steps below for detailed results."
+                        # Fall back to listing tools used
+                        tools_list = list(set(step.action for step in reasoning_steps))
+                        answer = f"I completed the analysis using {len(tools_list)} tool(s): {', '.join(tools_list)}. Please review the reasoning steps below for detailed findings."
+                else:
+                    # No reasoning steps means something went wrong
+                    answer = "I couldn't generate a response. No analysis steps were completed. Please try rephrasing your query or check the logs for errors."
 
             # Step 6: Determine which tools were used
             tools_used = list(set(step.action for step in reasoning_steps))
