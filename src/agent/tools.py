@@ -1163,18 +1163,9 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
             class_dist = {}
 
         return DatasetAnalysisResult(
-            num_rows=data.get("num_rows", 0),
-            num_features=data.get("num_features", 0),
-            outliers=data.get("outliers", data.get("outliers_sample", [])),
-            outlier_count=data.get("outlier_count", 0),
-            class_distribution=data.get("class_distribution", {}),
-            suspected_poisoning=data.get("suspected_poisoning", False),
-            poisoning_confidence=data.get("poisoning_confidence", 0.0),
-            bias_score=data.get("bias_score", 0.0),
-            quality_score=data.get("quality_score", 0.0),
             num_rows=int(data.get("num_rows", 0)),
             num_features=int(data.get("num_features", 0)),
-            outliers=data.get("outliers_sample", data.get("outliers", [])),
+            outliers=data.get("outliers", data.get("outliers_sample", [])),
             outlier_count=int(data.get("outlier_count", 0)),
             class_distribution=class_dist,
             suspected_poisoning=bool(data.get("suspected_poisoning", False)),
