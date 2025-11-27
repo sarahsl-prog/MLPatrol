@@ -1510,7 +1510,9 @@ def create_interface() -> gr.Blocks:
                 dashboard_refresh.click(
                     fn=get_dashboard_html, inputs=None, outputs=[dashboard_html]
                 )
-                dashboard_run_scan.click(fn=run_scan_now, inputs=None, outputs=[dashboard_status])
+                dashboard_run_scan.click(
+                    fn=run_scan_now, inputs=None, outputs=[dashboard_status]
+                )
             # ================================================================
             # Tab 1: CVE Monitoring
             # ================================================================
@@ -1771,7 +1773,6 @@ def _check_runtime_dependencies() -> list:
     return missing
 
 
-
 def main():
     """Launch the MLPatrol Gradio application."""
     try:
@@ -1785,9 +1786,13 @@ def main():
                 ", ".join(missing),
             )
 
-        # Initialize agent in background
-        logger.info("Initializing agent...")
-        AgentState.get_agent()
+        # Initialize agent in background (non-blocking) and load persisted alerts
+        logger.info("Initializing agent in background thread...")
+        try:
+            AgentState.load_alerts_from_disk()
+        except Exception:
+            logger.debug("Failed to load persisted alerts", exc_info=True)
+        threading.Thread(target=AgentState.get_agent, daemon=True).start()
 
         # Create and launch interface
         interface = create_interface()
