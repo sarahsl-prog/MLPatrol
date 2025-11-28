@@ -361,18 +361,22 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
         # Check for missing or placeholder API key
         if not api_key or api_key == "your_tavily_api_key_here":
             logger.error("TAVILY_API_KEY not configured")
-            return json.dumps({
-                "status": "error",
-                "provider": "tavily",
-                "message": "Tavily API key not configured. Get your API key at https://tavily.com and add TAVILY_API_KEY to .env file."
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "provider": "tavily",
+                    "message": "Tavily API key not configured. Get your API key at https://tavily.com and add TAVILY_API_KEY to .env file.",
+                }
+            )
         if len(api_key) < 20:
             logger.error("TAVILY_API_KEY appears invalid (too short)")
-            return json.dumps({
-                "status": "error",
-                "provider": "tavily",
-                "message": "Tavily API key appears invalid. Please check your TAVILY_API_KEY in .env file."
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "provider": "tavily",
+                    "message": "Tavily API key appears invalid. Please check your TAVILY_API_KEY in .env file.",
+                }
+            )
 
         # Get configuration
         search_depth = os.getenv("TAVILY_SEARCH_DEPTH", "advanced")
@@ -502,18 +506,22 @@ def _brave_search(query: str, max_results: int = 5) -> str:
         # Check for missing or placeholder API key
         if not api_key or api_key == "your_brave_api_key_here":
             logger.error("BRAVE_API_KEY not configured")
-            return json.dumps({
-                "status": "error",
-                "provider": "brave",
-                "message": "Brave API key not configured. Get your API key at https://brave.com/search/api/ and add BRAVE_API_KEY to .env file."
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "provider": "brave",
+                    "message": "Brave API key not configured. Get your API key at https://brave.com/search/api/ and add BRAVE_API_KEY to .env file.",
+                }
+            )
         if len(api_key) < 20:
             logger.error("BRAVE_API_KEY appears invalid (too short)")
-            return json.dumps({
-                "status": "error",
-                "provider": "brave",
-                "message": "Brave API key appears invalid. Please check your BRAVE_API_KEY in .env file."
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "provider": "brave",
+                    "message": "Brave API key appears invalid. Please check your BRAVE_API_KEY in .env file.",
+                }
+            )
 
         # Get configuration
         freshness = os.getenv("BRAVE_SEARCH_FRESHNESS", "pw")  # past week
@@ -741,15 +749,16 @@ def analyze_dataset_impl(
         # Validate dataset
         num_rows, num_features = df.shape
         if num_rows < 10:
-            return json.dumps({
-                "status": "error",
-                "message": f"Dataset too small for analysis. Need at least 10 rows, got {num_rows}"
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Dataset too small for analysis. Need at least 10 rows, got {num_rows}",
+                }
+            )
         if num_features < 1:
-            return json.dumps({
-                "status": "error",
-                "message": "Dataset has no features to analyze"
-            })
+            return json.dumps(
+                {"status": "error", "message": "Dataset has no features to analyze"}
+            )
 
         # Use poisoning detector's outliers, but augment with z-score based detection
         outliers = poisoning_report.outlier_indices or []
@@ -782,11 +791,15 @@ def analyze_dataset_impl(
             # Use fallback values
             class_distribution = {}
             bias_score = 0.0
-            bias_report = type('BiasReport', (), {
-                'class_distribution': {},
-                'imbalance_score': 0.0,
-                'warnings': [f"Bias analysis failed: {str(e)}"]
-            })()
+            bias_report = type(
+                "BiasReport",
+                (),
+                {
+                    "class_distribution": {},
+                    "imbalance_score": 0.0,
+                    "warnings": [f"Bias analysis failed: {str(e)}"],
+                },
+            )()
 
         # Run poisoning detection with error handling
         try:
@@ -804,7 +817,7 @@ def analyze_dataset_impl(
             outlier_ratio = 0.0
             suspected_poisoning = False
             poisoning_confidence = 0.0
-            if not hasattr(bias_report, 'warnings'):
+            if not hasattr(bias_report, "warnings"):
                 bias_report.warnings = []
             bias_report.warnings.append(f"Poisoning detection failed: {str(e)}")
 
@@ -1085,7 +1098,9 @@ def parse_cve_results(tool_output: str) -> List[CVEResult]:
         data = json.loads(tool_output)
 
         if not isinstance(data, dict):
-            logger.error(f"Invalid CVE tool output format: expected dict, got {type(data).__name__}")
+            logger.error(
+                f"Invalid CVE tool output format: expected dict, got {type(data).__name__}"
+            )
             return []
 
         if data.get("status") != "success":
@@ -1095,7 +1110,9 @@ def parse_cve_results(tool_output: str) -> List[CVEResult]:
 
         cves_data = data.get("cves", [])
         if not isinstance(cves_data, list):
-            logger.error(f"Invalid CVEs format: expected list, got {type(cves_data).__name__}")
+            logger.error(
+                f"Invalid CVEs format: expected list, got {type(cves_data).__name__}"
+            )
             return []
 
         cves = []
@@ -1148,7 +1165,9 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
         data = json.loads(tool_output)
 
         if not isinstance(data, dict):
-            logger.error(f"Invalid dataset analysis output format: expected dict, got {type(data).__name__}")
+            logger.error(
+                f"Invalid dataset analysis output format: expected dict, got {type(data).__name__}"
+            )
             return None
 
         if data.get("status") != "success":
@@ -1159,22 +1178,15 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
         # Ensure class_distribution is a dict with proper types
         class_dist = data.get("class_distribution", {})
         if not isinstance(class_dist, dict):
-            logger.warning(f"Invalid class_distribution type: {type(class_dist).__name__}, using empty dict")
+            logger.warning(
+                f"Invalid class_distribution type: {type(class_dist).__name__}, using empty dict"
+            )
             class_dist = {}
 
         return DatasetAnalysisResult(
-            num_rows=data.get("num_rows", 0),
-            num_features=data.get("num_features", 0),
-            outliers=data.get("outliers", data.get("outliers_sample", [])),
-            outlier_count=data.get("outlier_count", 0),
-            class_distribution=data.get("class_distribution", {}),
-            suspected_poisoning=data.get("suspected_poisoning", False),
-            poisoning_confidence=data.get("poisoning_confidence", 0.0),
-            bias_score=data.get("bias_score", 0.0),
-            quality_score=data.get("quality_score", 0.0),
             num_rows=int(data.get("num_rows", 0)),
             num_features=int(data.get("num_features", 0)),
-            outliers=data.get("outliers_sample", data.get("outliers", [])),
+            outliers=data.get("outliers", data.get("outliers_sample", [])),
             outlier_count=int(data.get("outlier_count", 0)),
             class_distribution=class_dist,
             suspected_poisoning=bool(data.get("suspected_poisoning", False)),

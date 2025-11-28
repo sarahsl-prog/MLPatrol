@@ -23,7 +23,9 @@ from functools import lru_cache
 # Check Python version before importing any other modules
 if sys.version_info < (3, 10):
     print(f"Error: MLPatrol requires Python 3.10 or higher.")
-    print(f"Current version: Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print(
+        f"Current version: Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
     print(f"\nPlease upgrade Python:")
     print(f"  - Windows: Download from https://www.python.org/downloads/")
     print(f"  - macOS: brew install python@3.11")
@@ -48,10 +50,6 @@ MLPatrolAgent = None
 AgentResult = Any
 from src.security.cve_monitor import CVEMonitor
 from src.security.code_generator import build_cve_security_script
-
-# Import MLPatrol components
-from src.agent.reasoning_chain import MLPatrolAgent, create_mlpatrol_agent, AgentResult
-from src.agent.tools import parse_cve_results, parse_dataset_analysis
 from src.utils.config_validator import validate_and_exit_on_error
 
 # Load environment variables
@@ -111,71 +109,61 @@ THEME_COLORS = {
 
 
 class AgentState:
-    """Thread-safe singleton class to manage the MLPatrol agent instance.
+    """Thread-safe singleton to manage the MLPatrol agent instance.
 
-    This ensures we only initialize the agent once and reuse it across
-    all user interactions for better performance. Thread safety is crucial
-    since Gradio can handle multiple concurrent requests.
+    This class keeps initialization non-blocking, lazily imports the heavy
+    agent factory, and provides thread-safe alert storage with on-disk
+    persistence.
     """
 
     _instance: Optional[Any] = None
     _initialized: bool = False
     _error: Optional[str] = None
     _llm_info: Optional[Dict[str, str]] = None
-    # Alerts accumulated by background agents
+    _lock: threading.Lock = threading.Lock()
+    _alerts_lock: threading.Lock = threading.Lock()
     _alerts: List[Dict[str, Any]] = []
-    _alerts_lock: Optional[threading.Lock] = None
 
     @classmethod
     def get_agent(cls) -> Optional[Any]:
-        """Get or create the agent instance.
-    _instance: Optional[MLPatrolAgent] = None
-    _initialized: bool = False
-    _error: Optional[str] = None
-    _llm_info: Optional[Dict[str, str]] = None
-    _lock: threading.Lock = threading.Lock()
+        """Return the agent instance, initializing it if necessary.
 
-    @classmethod
-    def get_agent(cls) -> Optional[MLPatrolAgent]:
-        """Get or create the agent instance in a thread-safe manner.
-
-        Returns:
-            MLPatrolAgent instance or None if initialization failed
+        Uses double-checked locking to avoid repeated initializations across
+        threads while keeping the startup path quick.
         """
-        # Double-checked locking pattern for thread safety
         if not cls._initialized:
             with cls._lock:
-                # Check again inside the lock to avoid race condition
                 if not cls._initialized:
                     cls._initialize_agent()
         return cls._instance
 
     @classmethod
     def _initialize_agent(cls) -> None:
-        """Initialize the MLPatrol agent with API keys from environment."""
+        """Initialize the MLPatrol agent with environment configuration.
+
+        This method performs a lazy import of the agent factory to avoid
+        heavy imports during module import time.
+        """
         try:
             logger.info("Initializing MLPatrol agent...")
 
-            # Lazy import of heavy agent factory to avoid blocking module import
+            # Lazy import of heavy agent factory
             try:
                 from src.agent.reasoning_chain import (
                     create_mlpatrol_agent as _create_mlpatrol_agent,
                 )
             except Exception as e:
-                logger.debug(f"Failed to import agent factory: {e}", exc_info=True)
-                raise
+                cls._error = f"Failed to import agent factory: {e}"
+                logger.error(cls._error, exc_info=True)
+                cls._initialized = True
+                return
 
-            # Check for local LLM configuration first
             use_local = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
             if use_local:
-                # Local LLM via Ollama
                 model = os.getenv("LOCAL_LLM_MODEL", "ollama/llama3.1:8b")
                 base_url = os.getenv("LOCAL_LLM_URL", "http://localhost:11434")
-                api_key = None
-
                 logger.info(f"Using local LLM: {model}")
-
                 cls._instance = _create_mlpatrol_agent(
                     model=model,
                     base_url=base_url,
@@ -183,11 +171,6 @@ class AgentState:
                     max_iterations=10,
                     max_execution_time=180,
                 )
-
-                logger.info(f"Agent initialized successfully with local model: {model}")
-                cls._error = None
-
-                # Store LLM info
                 cls._llm_info = {
                     "provider": "local",
                     "model": model.replace("ollama/", ""),
@@ -196,20 +179,18 @@ class AgentState:
                     "url": base_url,
                     "status": "connected",
                 }
-
+                cls._error = None
             else:
-                # Cloud LLMs (existing logic)
                 api_key = os.getenv("ANTHROPIC_API_KEY")
-                model = "claude-sonnet-4-0"  # Alias for latest Claude Sonnet 4
-
+                model = "claude-sonnet-4-0"
                 if not api_key:
                     api_key = os.getenv("OPENAI_API_KEY")
                     model = "gpt-4"
 
                 if not api_key:
                     cls._error = (
-                        "No API key found. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY "
-                        "environment variable, or set USE_LOCAL_LLM=true for local models."
+                        "No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, "
+                        "or set USE_LOCAL_LLM=true for local models."
                     )
                     logger.error(cls._error)
                     cls._initialized = True
@@ -223,37 +204,26 @@ class AgentState:
                     max_iterations=10,
                     max_execution_time=180,
                 )
+                cls._llm_info = {
+                    "provider": "cloud",
+                    "model": model,
+                    "type": "cloud",
+                    "display_name": f"{model}",
+                    "status": "connected",
+                }
 
-            logger.info(f"Agent initialized successfully with model: {model}")
-            # Record initialization time and instance diagnostics for troubleshooting
             try:
                 cls._initialized_at = datetime.now(timezone.utc).isoformat()
                 cls._instance_info = {"type": type(cls._instance).__name__}
                 logger.debug("Agent instance info: %s", cls._instance_info)
             except Exception:
                 logger.debug("Failed to record agent diagnostics", exc_info=True)
+
             cls._error = None
 
-            # Store LLM info
-            if "claude" in model.lower():
-                provider_name = "Anthropic"
-                llm_type = "anthropic"
-            else:
-                provider_name = "OpenAI"
-                llm_type = "openai"
-
-            cls._llm_info = {
-                "provider": "cloud",
-                "model": model,
-                "type": llm_type,
-                "display_name": f"{model} (Cloud - {provider_name})",
-                "status": "connected",
-            }
-
         except Exception as e:
-            cls._error = f"Failed to initialize agent: {str(e)}"
-            logger.error(f"Agent initialization failed: {e}", exc_info=True)
-            # Set error status
+            cls._error = f"Failed to initialize agent: {e}"
+            logger.error(cls._error, exc_info=True)
             cls._llm_info = {
                 "provider": "unknown",
                 "model": "unknown",
@@ -263,59 +233,28 @@ class AgentState:
             }
         finally:
             cls._initialized = True
-            # initialize alert lock lazily
-            try:
-                if cls._alerts_lock is None:
-                    cls._alerts_lock = threading.Lock()
-            except Exception:
-                cls._alerts_lock = None
 
     @classmethod
     def is_ready(cls) -> bool:
-        """Return True if agent initialized and connected."""
         return cls._initialized and cls._instance is not None and cls._error is None
 
     @classmethod
     def get_error(cls) -> Optional[str]:
-        """Get initialization error if any in a thread-safe manner."""
         if not cls._initialized:
-            with cls._lock:
-                if not cls._initialized:
-                    cls._initialize_agent()
+            return None
         return cls._error
 
     @classmethod
     def get_llm_info(cls) -> Optional[Dict[str, str]]:
-        """Get LLM configuration information in a thread-safe manner.
-
-        Returns:
-            Dictionary with LLM info or None if not initialized
-            {
-                'provider': 'cloud' | 'local',
-                'model': str,
-                'type': 'anthropic' | 'openai' | 'ollama',
-                'display_name': str,
-                'status': 'connected' | 'error'
-            }
-        """
-        if not cls._initialized:
-            with cls._lock:
-                if not cls._initialized:
-                    cls._initialize_agent()
         return cls._llm_info
 
     @classmethod
     def add_alert(cls, alert: Dict[str, Any]) -> None:
-        """Add an alert to the shared alert list."""
         try:
-            if cls._alerts_lock:
-                with cls._alerts_lock:
-                    cls._alerts.insert(0, alert)
-                    cls._alerts = cls._alerts[:200]
-            else:
+            with cls._alerts_lock:
                 cls._alerts.insert(0, alert)
                 cls._alerts = cls._alerts[:200]
-            # Persist alerts to disk for durability
+            # persist
             try:
                 alerts_dir = Path("data")
                 alerts_dir.mkdir(parents=True, exist_ok=True)
@@ -323,18 +262,14 @@ class AgentState:
                 alerts_file.write_text(json.dumps(cls._alerts, indent=2))
             except Exception:
                 logger.debug("Failed to persist alerts", exc_info=True)
-        except Exception as e:
-            logger.debug(f"Failed to add alert: {e}", exc_info=True)
+        except Exception:
+            logger.debug("Failed to add alert", exc_info=True)
 
     @classmethod
     def get_alerts(cls) -> List[Dict[str, Any]]:
-        if not cls._initialized:
-            cls._initialize_agent()
         try:
-            if cls._alerts_lock:
-                with cls._alerts_lock:
-                    return list(cls._alerts)
-            return list(cls._alerts)
+            with cls._alerts_lock:
+                return list(cls._alerts)
         except Exception:
             return list(cls._alerts)
 
@@ -343,35 +278,17 @@ class AgentState:
         try:
             alerts_file = Path("data") / "alerts.json"
             if alerts_file.exists():
-                try:
-                    content = alerts_file.read_text()
-                    arr = json.loads(content)
-                    if isinstance(arr, list):
-                        if cls._alerts_lock:
-                            with cls._alerts_lock:
-                                cls._alerts = arr[:200]
-                        else:
-                            cls._alerts = arr[:200]
-                except Exception:
-                    logger.debug("Failed to load alerts from disk", exc_info=True)
+                content = alerts_file.read_text()
+                arr = json.loads(content)
+                if isinstance(arr, list):
+                    with cls._alerts_lock:
+                        cls._alerts = arr[:200]
         except Exception:
-            logger.debug("Failed to access alerts file", exc_info=True)
+            logger.debug("Failed to load alerts from disk", exc_info=True)
 
     @staticmethod
     def get_web_search_info() -> Dict[str, Any]:
-        """Get web search provider configuration information.
-
-        Returns:
-            Dictionary with web search info
-            {
-                'enabled': bool,
-                'providers': List[str],  # ['tavily', 'brave'] or subset
-                'status': 'active' | 'disabled' | 'not_configured',
-                'display_text': str
-            }
-        """
         enabled = os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"
-
         if not enabled:
             return {
                 "enabled": False,
@@ -379,16 +296,13 @@ class AgentState:
                 "status": "disabled",
                 "display_text": "Web Search: Disabled",
             }
-
         use_tavily = os.getenv("USE_TAVILY_SEARCH", "false").lower() == "true"
         use_brave = os.getenv("USE_BRAVE_SEARCH", "false").lower() == "true"
-
         providers = []
         if use_tavily:
             providers.append("Tavily AI")
         if use_brave:
             providers.append("Brave Search")
-
         if not providers:
             return {
                 "enabled": True,
@@ -396,17 +310,13 @@ class AgentState:
                 "status": "not_configured",
                 "display_text": "Web Search: Not Configured",
             }
-
-        # Check if API keys are set
         tavily_key = os.getenv("TAVILY_API_KEY", "")
         brave_key = os.getenv("BRAVE_API_KEY", "")
-
         active_providers = []
         if use_tavily and tavily_key and tavily_key != "your_tavily_api_key_here":
             active_providers.append("Tavily AI")
         if use_brave and brave_key and brave_key != "your_brave_api_key_here":
             active_providers.append("Brave Search")
-
         if not active_providers:
             return {
                 "enabled": True,
@@ -414,7 +324,6 @@ class AgentState:
                 "status": "not_configured",
                 "display_text": f"Web Search: {', '.join(providers)} (API keys needed)",
             }
-
         provider_text = " + ".join(active_providers)
         return {
             "enabled": True,
@@ -1173,8 +1082,6 @@ def run_scan_now() -> str:
 
 def handle_code_generation(
     purpose: str, library: str, cve_id: Optional[str], progress=gr.Progress()
-def handle_code_generation(
-    purpose: str, library: str, cve_id: str, progress=gr.Progress()
 ) -> Tuple[str, str, str, str]:
     """Handle security code generation request.
 
@@ -1574,7 +1481,7 @@ def create_interface() -> gr.Blocks:
             )
 
         # Main tabs
-        with gr.Tabs():
+        with gr.Tabs() as tabs:
             # ================================================================
             # Tab 0: Dashboard / Alerts
             # ================================================================
@@ -1596,8 +1503,16 @@ def create_interface() -> gr.Blocks:
                             "Run CVE Scan Now", variant="primary"
                         )
 
-        # Main tabs
-        with gr.Tabs() as tabs:
+                    with gr.Column(scale=2):
+                        dashboard_html = gr.HTML(label="Alerts")
+
+                # Connect handlers
+                dashboard_refresh.click(
+                    fn=get_dashboard_html, inputs=None, outputs=[dashboard_html]
+                )
+                dashboard_run_scan.click(
+                    fn=run_scan_now, inputs=None, outputs=[dashboard_status]
+                )
             # ================================================================
             # Tab 1: CVE Monitoring
             # ================================================================
@@ -1767,7 +1682,7 @@ def create_interface() -> gr.Blocks:
                 chat_interface = gr.Chatbot(
                     label="MLPatrol Security Assistant",
                     height=400,
-                    bubble_full_width=False,
+                    type="messages",
                 )
 
                 with gr.Row():
@@ -1830,47 +1745,6 @@ def create_interface() -> gr.Blocks:
 # ============================================================================
 
 
-def main():
-    """Launch the MLPatrol Gradio application."""
-    try:
-        logger.info("Starting MLPatrol application...")
-
-        # Runtime dependency check
-        missing = _check_runtime_dependencies()
-        if missing:
-            logger.warning(
-                "Missing optional dependencies: %s. Some features may not work as expected.",
-                ", ".join(missing),
-            )
-
-        # Initialize agent in background
-        logger.info("Initializing agent...")
-        AgentState.get_agent()
-
-        # Create and launch interface
-        interface = create_interface()
-
-        # Launch configuration
-        interface.launch(
-            server_name="0.0.0.0",
-            server_port=7860,
-            share=False,  # Set to True if you want a public link
-            show_error=True,
-            show_api=False,
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to start application: {e}", exc_info=True)
-        print(f"ERROR: {e}")
-        print("\nFull traceback:")
-        traceback.print_exc()
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
-
-
 def _check_runtime_dependencies() -> list:
     """Check for commonly required runtime dependencies and return missing names.
 
@@ -1897,3 +1771,48 @@ def _check_runtime_dependencies() -> list:
         )
 
     return missing
+
+
+def main():
+    """Launch the MLPatrol Gradio application."""
+    try:
+        logger.info("Starting MLPatrol application...")
+
+        # Runtime dependency check
+        missing = _check_runtime_dependencies()
+        if missing:
+            logger.warning(
+                "Missing optional dependencies: %s. Some features may not work as expected.",
+                ", ".join(missing),
+            )
+
+        # Initialize agent in background (non-blocking) and load persisted alerts
+        logger.info("Initializing agent in background thread...")
+        try:
+            AgentState.load_alerts_from_disk()
+        except Exception:
+            logger.debug("Failed to load persisted alerts", exc_info=True)
+        threading.Thread(target=AgentState.get_agent, daemon=True).start()
+
+        # Create and launch interface
+        interface = create_interface()
+
+        # Launch configuration
+        interface.launch(
+            server_name="0.0.0.0",
+            server_port=7860,
+            share=False,  # Set to True if you want a public link
+            show_error=True,
+            show_api=False,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to start application: {e}", exc_info=True)
+        print(f"ERROR: {e}")
+        print("\nFull traceback:")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
