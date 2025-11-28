@@ -10,7 +10,8 @@
       "Bash(python312:*)",
       "Bash(py -3.12:*)",
       "Bash(py --list:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(./mlvenv/Scripts/python.exe:*)"
     ],
     "deny": [],
     "ask": []

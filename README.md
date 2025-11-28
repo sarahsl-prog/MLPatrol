@@ -178,7 +178,7 @@ Unlike simple search tools, MLPatrol actively *thinks* through problems:
 
 ### Prerequisites
 ```bash
-Python 3.10+ (3.11+ recommended for best performance)
+Python 3.12+ (3.13+ recommended for best performance)
 pip or conda
 ```
 
