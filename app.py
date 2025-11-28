@@ -21,15 +21,15 @@ from datetime import datetime, timezone
 from functools import lru_cache
 
 # Check Python version before importing any other modules
-if sys.version_info < (3, 10):
-    print(f"Error: MLPatrol requires Python 3.10 or higher.")
+if sys.version_info < (3, 12):
+    print(f"Error: MLPatrol requires Python 3.12 or higher.")
     print(
         f"Current version: Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
     print(f"\nPlease upgrade Python:")
     print(f"  - Windows: Download from https://www.python.org/downloads/")
-    print(f"  - macOS: brew install python@3.11")
-    print(f"  - Linux: sudo apt install python3.11")
+    print(f"  - macOS: brew install python@3.12")
+    print(f"  - Linux: sudo apt install python3.12")
     sys.exit(1)
 
 import gradio as gr

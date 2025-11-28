@@ -760,25 +760,6 @@ def analyze_dataset_impl(
                 {"status": "error", "message": "Dataset has no features to analyze"}
             )
 
-        # Use poisoning detector's outliers, but augment with z-score based detection
-        outliers = poisoning_report.outlier_indices or []
-        try:
-            z_outliers = detect_outliers_zscore(df, threshold=3.0)
-        except Exception:
-            z_outliers = []
-        # merge unique indices
-        combined_outliers = sorted(set(outliers) | set(z_outliers))
-        outlier_count = len(combined_outliers)
-        outlier_ratio = outlier_count / max(len(df), 1)
-
-        class_distribution = bias_report.class_distribution
-        bias_score = bias_report.imbalance_score
-        suspected_poisoning = poisoning_report.suspected_poisoning or (
-            outlier_ratio > 0.05
-        )
-        poisoning_confidence = max(
-            poisoning_report.confidence, min(outlier_ratio * 10, 1.0)
-        )
         logger.info(f"Analyzing dataset: {num_rows} rows, {num_features} features")
 
         # Run bias analysis with error handling
@@ -820,6 +801,21 @@ def analyze_dataset_impl(
             if not hasattr(bias_report, "warnings"):
                 bias_report.warnings = []
             bias_report.warnings.append(f"Poisoning detection failed: {str(e)}")
+
+        # Augment poisoning detector's outliers with z-score based detection
+        try:
+            z_outliers = detect_outliers_zscore(df, threshold=3.0)
+        except Exception:
+            z_outliers = []
+
+        # Merge unique indices from both detection methods
+        combined_outliers = sorted(set(outliers) | set(z_outliers))
+        outlier_count = len(combined_outliers)
+        outlier_ratio = outlier_count / max(len(df), 1)
+
+        # Update suspected poisoning based on combined analysis
+        suspected_poisoning = suspected_poisoning or (outlier_ratio > 0.05)
+        poisoning_confidence = max(poisoning_confidence, min(outlier_ratio * 10, 1.0))
 
         # Calculate quality score (0-10)
         quality_score = 10.0
