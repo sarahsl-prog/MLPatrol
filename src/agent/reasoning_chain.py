@@ -13,14 +13,14 @@ from enum import Enum
 from datetime import datetime
 
 try:
-    # Prefer the legacy langgraph helper if available since it accepts the
-    # existing `prompt` argument used by this codebase. Fall back to the newer
-    # langchain.agents.create_agent only if the legacy helper is not available.
-    from langgraph.prebuilt import create_react_agent  # type: ignore
+    # Use the modern langchain.agents.create_agent (LangGraph 1.0+)
+    # This replaces the deprecated langgraph.prebuilt.create_react_agent
+    from langchain.agents import create_agent as create_react_agent  # type: ignore
     from langgraph.graph import StateGraph, END
 except Exception:
     try:
-        from langchain.agents import create_agent as create_react_agent  # type: ignore
+        # Fallback to legacy langgraph.prebuilt for older versions
+        from langgraph.prebuilt import create_react_agent  # type: ignore
         from langgraph.graph import StateGraph, END
     except Exception:
         # If neither import is available, keep names defined as None and allow
@@ -293,60 +293,39 @@ class MLPatrolAgent:
                 )
 
             # Create the ReAct agent using the available agent factory.
-            # Different langgraph/langchain versions expose different helper
-            # signatures. Inspect the callable signature and map our
-            # arguments to the accepted parameter names to maintain
-            # compatibility and avoid deprecation warnings.
+            # The modern API (langchain.agents.create_agent) uses 'system_prompt',
+            # while the legacy API (langgraph.prebuilt.create_react_agent) uses 'prompt'.
             if create_react_agent is None:
                 raise AgentError(
                     "No agent factory available (create_react_agent is not imported)"
                 )
 
-            try:
-                import inspect
+            import inspect
 
-                sig = inspect.signature(create_react_agent)
-                params = sig.parameters
+            sig = inspect.signature(create_react_agent)
+            params = sig.parameters
 
-                agent_kwargs = {}
-                # Map model/llm param
-                if "model" in params:
-                    agent_kwargs["model"] = self.llm
-                elif "llm" in params:
-                    agent_kwargs["llm"] = self.llm
-
-                # Map tools
-                if "tools" in params:
-                    agent_kwargs["tools"] = self.tools
-
-                # Map prompt/system message where available
-                if "prompt" in params:
-                    agent_kwargs["prompt"] = system_message
-                elif "system_message" in params:
-                    agent_kwargs["system_message"] = system_message
-                elif "system_prompt" in params:
-                    agent_kwargs["system_prompt"] = system_message
-
-                # Call the factory with adapted kwargs
-                self.agent_executor = create_react_agent(**agent_kwargs)
-
-            except TypeError:
-                # As a last resort, try the legacy call signature that was
-                # used historically. This keeps maximal backward compatibility.
+            # Check which parameter name to use for the system message
+            if "system_prompt" in params:
+                # Modern API: langchain.agents.create_agent
+                self.agent_executor = create_react_agent(
+                    model=self.llm,
+                    tools=self.tools,
+                    system_prompt=system_message,
+                )
+            elif "prompt" in params:
+                # Legacy API: langgraph.prebuilt.create_react_agent
                 self.agent_executor = create_react_agent(
                     model=self.llm,
                     tools=self.tools,
                     prompt=system_message,
                 )
-                system_message = "You are MLPatrol, an expert AI security agent for ML systems."
-
-            # Create the ReAct agent using LangGraph's prebuilt function
-            # As of LangGraph 1.0+, use 'prompt' parameter
-            self.agent_executor = create_react_agent(
-                model=self.llm,
-                tools=self.tools,
-                prompt=system_message,
-            )
+            else:
+                # Fallback: try without system message parameter
+                self.agent_executor = create_react_agent(
+                    model=self.llm,
+                    tools=self.tools,
+                )
 
             logger.info("LangGraph agent configured successfully")
 

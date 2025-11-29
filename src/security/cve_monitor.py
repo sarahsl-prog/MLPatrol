@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -89,7 +89,7 @@ class CVEMonitor:
         """Fetch CVEs for a library within a time window."""
         logger.info("Querying NVD for %s (last %s days)", library, days_back)
 
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days_back)
 
         params = {
