@@ -1,0 +1,100 @@
+tests/test_cve_monitor.py::TestCVEMonitor::test_format_cve_no_metrics PASSED [ 59%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_format_cve_no_description PASSED [ 60%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_format_cve_many_references PASSED [ 60%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_success PASSED [ 61%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_no_results PASSED [ 61%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_multiple_cves PASSED [ 62%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_uses_api_key PASSED [ 62%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_custom_days_back PASSED [ 63%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_http_error PASSED [ 63%]
+tests/test_cve_monitor.py::TestCVEMonitor::test_search_recent_timeout PASSED [ 64%]
+tests/test_dataset.py::TestDatasetAnalysis::test_analyze_csv_success PASSED [ 64%]
+tests/test_dataset.py::TestDatasetAnalysis::test_analyze_json_success PASSED [ 65%]
+tests/test_dataset.py::TestDatasetAnalysis::test_missing_numpy_handling PASSED [ 65%]
+tests/test_dataset.py::TestDatasetAnalysis::test_invalid_file_path PASSED [ 66%]
+tests/test_dataset.py::TestDatasetAnalysis::test_invalid_json PASSED     [ 67%]
+tests/test_dataset.py::TestDatasetAnalysis::test_no_input_provided PASSED [ 67%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_default_level PASSED [ 68%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_custom_level PASSED [ 68%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_from_environment PASSED [ 69%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_param_overrides_env PASSED [ 69%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_case_insensitive PASSED [ 70%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_only_once PASSED [ 70%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_format PASSED [ 71%]
+tests/test_logger.py::TestConfigureLogging::test_configure_logging_multiple_levels PASSED [ 71%]
+tests/test_logger.py::TestGetLogger::test_get_logger_returns_logger PASSED [ 72%]
+tests/test_logger.py::TestGetLogger::test_get_logger_configures_logging PASSED [ 72%]
+tests/test_logger.py::TestGetLogger::test_get_logger_different_names PASSED [ 73%]
+tests/test_logger.py::TestGetLogger::test_get_logger_same_name PASSED    [ 73%]
+tests/test_logger.py::TestGetLogger::test_get_logger_inherits_config PASSED [ 74%]
+tests/test_logger.py::TestGetLogger::test_get_logger_can_log PASSED      [ 75%]
+tests/test_logger.py::TestGetLogger::test_get_logger_with_module_name PASSED [ 75%]
+tests/test_logger.py::TestGetLogger::test_multiple_get_logger_calls_dont_reconfigure PASSED [ 76%]
+tests/test_logger.py::TestDefaultFormat::test_default_format_exists PASSED [ 76%]
+tests/test_logger.py::TestDefaultFormat::test_default_format_contains_required_fields PASSED [ 77%]
+tests/test_mcp_connectors.py::TestMCPConnector::test_connector_creation PASSED [ 77%]
+tests/test_mcp_connectors.py::TestMCPConnector::test_connector_empty_config PASSED [ 78%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_registry_initialization PASSED [ 78%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_register_connector PASSED [ 79%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_register_multiple_connectors PASSED [ 79%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_register_overwrites_existing PASSED [ 80%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_get_existing_connector PASSED [ 80%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_get_nonexistent_connector PASSED [ 81%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_get_from_empty_registry PASSED [ 81%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_all_returns_copy PASSED [ 82%]
+tests/test_mcp_connectors.py::TestConnectorRegistry::test_all_empty_registry PASSED [ 82%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_load_default_connectors_returns_registry PASSED [ 83%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_load_default_connectors_includes_nvd PASSED [ 84%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_load_default_connectors_includes_tavily PASSED [ 84%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_load_default_connectors_includes_brave PASSED [ 85%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_load_default_connectors_count PASSED [ 85%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_load_default_connectors_multiple_calls PASSED [ 86%]
+tests/test_mcp_connectors.py::TestLoadDefaultConnectors::test_default_connectors_can_be_extended PASSED [ 86%]
+tests/test_security.py::TestSecurityCodeGeneration::test_generate_basic_validation PASSED [ 87%]
+tests/test_security.py::TestSecurityCodeGeneration::test_generate_cve_specific_code PASSED [ 87%]
+tests/test_security.py::TestSecurityCodeGeneration::test_generate_with_affected_versions PASSED [ 88%]
+tests/test_security.py::TestSecurityCodeGeneration::test_generate_error_handling PASSED [ 88%]
+tests/test_statistical_tests.py::test_compute_z_scores_empty PASSED      [ 89%]
+tests/test_statistical_tests.py::test_compute_z_scores_values PASSED     [ 89%]
+tests/test_statistical_tests.py::test_detect_outliers_zscore PASSED      [ 90%]
+tests/test_statistical_tests.py::test_ks_test_between_columns PASSED     [ 90%]
+tests/test_statistical_tests.py::test_chi2_of_categorical PASSED         [ 91%]
+tests/test_statistical_tests.py::test_dataset_summary PASSED             [ 92%]
+tests/test_threat_intel.py::TestThreatIntelInsight::test_insight_creation PASSED [ 92%]
+tests/test_threat_intel.py::TestThreatIntelInsight::test_insight_empty_references PASSED [ 93%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_aggregator_initialization PASSED [ 93%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_add_cve_summary PASSED [ 94%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_add_cve_summary_without_references PASSED [ 94%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_add_cve_summary_severity_uppercase PASSED [ 95%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_add_dataset_findings_poisoning_detected PASSED [ 95%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_add_dataset_findings_low_quality PASSED [ 96%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_add_dataset_findings_good_quality PASSED [ 96%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_extend_with_insights PASSED [ 97%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_summarize_sorts_by_severity PASSED [ 97%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_summarize_handles_unknown_severity PASSED [ 98%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_summarize_stable_sort PASSED [ 98%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_multiple_operations PASSED [ 99%]
+tests/test_threat_intel.py::TestThreatIntelAggregator::test_empty_aggregator PASSED [100%]
+
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.13.9-final-0 _______________
+
+Name                                Stmts   Miss Branch BrPart   Cover   Missing
+--------------------------------------------------------------------------------
+src\agent\prompts.py                   21      4      0      0  80.95%   359, 371, 404-405
+src\agent\reasoning_chain.py          353    172    124     14  46.75%   20-29, 267, 283->289, 284->283, 285->283, 291, 299, 316-325, 332-334, 367, 424, 444, 464, 511-543, 580->586, 598, 640-801, 929-943, 957-958, 978-1064
+src\agent\tools.py                    451    268     90      2  38.63%   94, 182-186, 216-218, 239-241, 256-258, 287-321, 339-353, 369-492, 514-631, 658-711, 779, 790-809, 827-848, 857-864, 919->927, 935-936, 938-940, 961-963, 1022-1024, 1039-1065, 1086-1134, 1151-1206, 1218-1268
+src\dataset\bias_analyzer.py           56      5     24      7  85.00%   31, 45->83, 53, 60->77, 65, 73, 84
+src\dataset\poisoning_detector.py      30      0      2      0 100.00%
+src\dataset\statistical_tests.py       41      3     10      3  88.24%   38, 56, 68
+src\mcp\connectors.py                  23      0      0      0 100.00%
+src\security\code_generator.py         53      6     12      3  83.08%   25, 27, 44, 310-312
+src\security\cve_monitor.py            56      0      4      0 100.00%
+src\security\threat_intel.py           27      0      0      0 100.00%
+src\utils\config.py                    34      0      4      0 100.00%
+src\utils\config_validator.py         107      0     50      0 100.00%
+src\utils\logger.py                    16      0      2      0 100.00%
+--------------------------------------------------------------------------------
+TOTAL                                1268    458    322     29  61.07%
+Coverage JSON written to file coverage.json
+============================= 188 passed in 2.87s =============================

@@ -14,7 +14,13 @@
       "Bash(./mlvenv/Scripts/python.exe:*)",
       "Bash(dir:*)",
       "Bash(pytest:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(git checkout:*)",
+      "Bash(./mlvenv/Scripts/pip.exe install:*)",
+      "Bash(./mlvenv/Scripts/detect-secrets.exe scan:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git merge phase2-p3-implementation --no-ff -m \"$(cat <<''EOF''\nfeat: Phase 2 Partial - Secrets Detection & Rate Limiting (ISSUE-20, ISSUE-21)\n\nImplements 2 of 6 P3 priority issues:\n\nFeatures:\n- Secrets detection pre-commit hook with detect-secrets\n- Thread-safe rate limiting infrastructure\n- Comprehensive documentation updates\n\nTesting:\n- 199/199 tests passing (+11 new tests)\n- Coverage: 62.00% (+0.93%)\n- Zero regressions\n\nCloses #20\nCloses #21\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
