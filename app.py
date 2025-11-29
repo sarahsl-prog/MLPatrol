@@ -10,7 +10,6 @@ The app uses LangChain/LangGraph with Claude Sonnet or GPT-4 for multi-step reas
 """
 
 import json
-import logging
 import os
 import sys
 import threading
@@ -58,13 +57,10 @@ load_dotenv()
 # Validate configuration at startup
 validate_and_exit_on_error()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("mlpatrol.log"), logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger(__name__)
+# Configure logging with Loguru
+from src.utils.logger import get_logger
+
+logger = get_logger("main", log_dir="app")
 
 # ============================================================================
 # Constants and Configuration
@@ -976,7 +972,7 @@ def run_background_coordinator_once() -> None:
         logger.info("Background coordinator running a single scan pass...")
 
         # determine since date (use file to persist last run)
-        last_file = Path(".last_cve_check")
+        last_file = Path("data/cve_cache/last_check.txt")
         if last_file.exists():
             try:
                 ts = datetime.fromisoformat(last_file.read_text().strip())
@@ -1862,6 +1858,10 @@ def _check_runtime_dependencies() -> list:
 def main():
     """Launch the MLPatrol Gradio application."""
     try:
+        # Ensure data directories exist
+        Path("data/cve_cache").mkdir(parents=True, exist_ok=True)
+        Path("data/user_data").mkdir(parents=True, exist_ok=True)
+
         logger.info("Starting MLPatrol application...")
 
         # Runtime dependency check

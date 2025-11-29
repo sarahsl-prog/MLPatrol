@@ -4,7 +4,6 @@ This module contains the core MLPatrol agent that orchestrates security analysis
 through multi-step reasoning, tool execution, and result synthesis using LangGraph.
 """
 
-import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -32,6 +31,9 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 
+# Setup logging with Loguru
+from src.utils.logger import get_agent_logger
+
 from .prompts import (
     VALIDATION_PATTERNS,
     get_agent_prompt,
@@ -41,8 +43,7 @@ from .prompts import (
 )
 from .tools import create_mlpatrol_tools, parse_cve_results, parse_dataset_analysis
 
-# Setup logging
-logger = logging.getLogger(__name__)
+logger = get_agent_logger("reasoning_chain")
 
 
 # ============================================================================
@@ -266,11 +267,8 @@ class MLPatrolAgent:
 
     def _setup_logging(self) -> None:
         """Configure logging for the agent."""
-        if self.verbose:
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            )
+        # Logging already configured via Loguru in src.utils.logger
+        pass
 
     def _setup_agent(self) -> None:
         """Configure the LangGraph agent with prompts and tools.

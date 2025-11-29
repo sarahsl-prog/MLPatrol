@@ -70,6 +70,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+cache_dir = "tests/outputs/pytest_cache"
 addopts = [
     "-ra",
     "--strict-markers",
@@ -147,6 +148,7 @@ ignore = [
 [tool.coverage.run]
 branch = true
 source = ["src", "app.py"]
+data_file = "tests/outputs/coverage/.coverage"
 omit = [
     "*/tests/*",
     "*/test_*.py",
@@ -168,6 +170,12 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "@(abc\\.)?abstractmethod",
 ]
+
+[tool.coverage.json]
+output = "tests/outputs/coverage/coverage.json"
+
+[tool.coverage.html]
+directory = "tests/outputs/coverage/htmlcov"
 
 [tool.bandit]
 exclude_dirs = ["tests", "venv", "mlvenv", ".venv"]

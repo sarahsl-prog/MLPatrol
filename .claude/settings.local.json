@@ -28,7 +28,18 @@
       "Bash(./mlvenv/Scripts/black.exe:*)",
       "Bash(./mlvenv/Scripts/flake8.exe:*)",
       "Bash(./mlvenv/Scripts/pre-commit.exe run:*)",
-      "Bash(./mlvenv/Scripts/pip-audit.exe:*)"
+      "Bash(./mlvenv/Scripts/pip-audit.exe:*)",
+      "Bash(if [ -f \".last_cve_check\" ])",
+      "Bash(then mv \".last_cve_check\" \"data/cve_cache/last_check.txt\")",
+      "Bash(else echo \"No .last_cve_check file found\")",
+      "Bash(fi)",
+      "Bash(if [ -f \".coverage\" ])",
+      "Bash(then mv \".coverage\" \"tests/outputs/coverage/.coverage\")",
+      "Bash(if [ -d \"testse2e\" ])",
+      "Bash(then )",
+      "Bash(if [ -f \"analysis_report.md\" ])",
+      "Bash(then mv \"analysis_report.md\" \"docs/changes/\")",
+      "Bash(else echo \"analysis_report.md not found\")"
     ],
     "deny": [],
     "ask": []

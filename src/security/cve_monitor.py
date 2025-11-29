@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
 
-logger = logging.getLogger(__name__)
+# Setup logging with Loguru
+from src.utils.logger import get_security_logger
+
+logger = get_security_logger("cve_monitor")
 
 
 @dataclass

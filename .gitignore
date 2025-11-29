@@ -32,18 +32,39 @@ assets/videos/*.mov
 examples/sample_datasets/*.csv
 examples/sample_datasets/*.parquet
 
-# Logs
+# Logs (now in logs/ directory)
 *.log
 logs/
-.last_cve_check
+!logs/.gitkeep
+!logs/*/.gitkeep
 
 # Gradio
 gradio_queue.db
 flagged/
 
+# Claude cache
 .claude_cache/
 
-# Data folders
+# Data folders (runtime data)
 data/
+!data/.gitkeep
+!data/*/.gitkeep
+
+# Output folders
 output/
 results/
+
+# Temporary files
+temp/
+!temp/.gitkeep
+!temp/*/.gitkeep
+
+# Testing artifacts
+.coverage
+coverage.json
+coverage_baseline.json
+htmlcov/
+.pytest_cache/
+tests/outputs/
+!tests/outputs/.gitkeep
+!tests/outputs/*/.gitkeep
