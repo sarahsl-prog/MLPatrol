@@ -132,6 +132,53 @@ isort .
 pre-commit run --all-files
 ```
 
+### Secrets Handling
+
+**IMPORTANT:** Never commit secrets, API keys, or credentials to the repository!
+
+We use `detect-secrets` to prevent accidental commits of sensitive information:
+
+#### What's Blocked
+
+- API keys (AWS, OpenAI, Anthropic, etc.)
+- Passwords and tokens
+- Private keys
+- Database credentials
+- Any high-entropy strings that look like secrets
+
+#### If the Pre-commit Hook Blocks Your Commit
+
+1. **Review the detected secret** - Is it a real secret or false positive?
+
+2. **If it's a real secret:**
+   - Remove it from your code
+   - Use environment variables instead:
+
+     ```python
+     import os
+     api_key = os.getenv("ANTHROPIC_API_KEY")
+     ```
+
+   - Add to `.env` file (which is gitignored)
+   - Never hardcode secrets!
+
+3. **If it's a false positive:**
+   - Update the baseline:
+
+     ```bash
+     detect-secrets scan --baseline .secrets.baseline
+     detect-secrets audit .secrets.baseline
+     ```
+
+   - Mark the finding as "false" in the audit
+   - Commit the updated `.secrets.baseline`
+
+#### Testing with Secrets
+
+- Use environment variables in tests
+- Use mock/fake values for testing
+- Never use real production secrets in tests
+
 ### Naming Conventions
 
 - **Variables/Functions**: `snake_case`

@@ -24,3 +24,19 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: check-yaml
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)^(
+            package-lock\.json|
+            poetry\.lock|
+            .*\.ipynb|
+            coverage\.json|
+            coverage_baseline\.json|
+            \.secrets\.baseline|
+            baseline_tests\.txt
+          )$
