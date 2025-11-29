@@ -8,18 +8,18 @@ This module provides LangChain-compatible tool wrappers for:
 - HuggingFace dataset searches
 """
 
-import logging
-import re
-import os
-import time
-from typing import Dict, List, Optional, Any, Union
-from dataclasses import dataclass
 import json
+import logging
+import os
+import re
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
 
+import pandas as pd
 import requests
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
-import pandas as pd
 
 try:
     import numpy as np
@@ -29,10 +29,10 @@ except ImportError:  # pragma: no cover - handled via dataset tests
 from src.dataset.bias_analyzer import analyze_bias
 from src.dataset.poisoning_detector import detect_poisoning
 from src.dataset.statistical_tests import (
-    detect_outliers_zscore,
-    dataset_summary,
-    ks_test_between_columns,
     chi2_of_categorical,
+    dataset_summary,
+    detect_outliers_zscore,
+    ks_test_between_columns,
 )
 from src.security.code_generator import (
     build_cve_security_script,
@@ -41,6 +41,24 @@ from src.security.code_generator import (
 from src.security.cve_monitor import CVEMonitor
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Dataset Analysis Constants
+DATASET_OUTLIER_ZSCORE_THRESHOLD = 3.0
+DATASET_POISONING_THRESHOLD = 0.05
+DATASET_HIGH_BIAS_THRESHOLD = 0.3
+DATASET_QUALITY_SCORE_MAX = 10.0
+DATASET_OUTLIER_PENALTY_FACTOR = 20
+DATASET_BIAS_PENALTY_FACTOR = 3
+DATASET_POISONING_PENALTY_FACTOR = 2
+DATASET_OUTLIER_CONFIDENCE_FACTOR = 10
+OUTLIER_PREVIEW_LIMIT = 200
+
+# Debug/Logging Constants
+TOOL_OUTPUT_LOG_PREVIEW_LENGTH = 200
 
 # ============================================================================
 # Data Models for Tool Inputs/Outputs
@@ -125,7 +143,7 @@ class DatasetAnalysisResult:
             "outlier_count": self.outlier_count,
             # Provide both a truncated sample and a fuller outliers list (truncated to reasonable size)
             "outliers_sample": self.outliers[:10],  # Only first 10 for brevity
-            "outliers": self.outliers[:200],
+            "outliers": self.outliers[:OUTLIER_PREVIEW_LIMIT],
             "class_distribution": self.class_distribution,
             "suspected_poisoning": self.suspected_poisoning,
             "poisoning_confidence": self.poisoning_confidence,
@@ -767,7 +785,7 @@ def analyze_dataset_impl(
             bias_report = analyze_bias(df)
             class_distribution = bias_report.class_distribution
             bias_score = bias_report.imbalance_score
-        except Exception as e:
+        except (ValueError, KeyError, AttributeError, TypeError) as e:
             logger.warning(f"Bias analysis failed: {e}", exc_info=True)
             # Use fallback values
             class_distribution = {}
@@ -781,6 +799,20 @@ def analyze_dataset_impl(
                     "warnings": [f"Bias analysis failed: {str(e)}"],
                 },
             )()
+        except Exception as e:
+            logger.error(f"Unexpected error in bias analysis: {e}", exc_info=True)
+            # Use fallback values for truly unexpected errors
+            class_distribution = {}
+            bias_score = 0.0
+            bias_report = type(
+                "BiasReport",
+                (),
+                {
+                    "class_distribution": {},
+                    "imbalance_score": 0.0,
+                    "warnings": [f"Unexpected error in bias analysis: {str(e)}"],
+                },
+            )()
 
         # Run poisoning detection with error handling
         try:
@@ -790,7 +822,7 @@ def analyze_dataset_impl(
             outlier_ratio = poisoning_report.outlier_ratio
             suspected_poisoning = poisoning_report.suspected_poisoning
             poisoning_confidence = poisoning_report.confidence
-        except Exception as e:
+        except (ValueError, KeyError, AttributeError, TypeError) as e:
             logger.warning(f"Poisoning detection failed: {e}", exc_info=True)
             # Use fallback values
             outliers = []
@@ -801,11 +833,32 @@ def analyze_dataset_impl(
             if not hasattr(bias_report, "warnings"):
                 bias_report.warnings = []
             bias_report.warnings.append(f"Poisoning detection failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error in poisoning detection: {e}", exc_info=True)
+            # Use fallback values for truly unexpected errors
+            outliers = []
+            outlier_count = 0
+            outlier_ratio = 0.0
+            suspected_poisoning = False
+            poisoning_confidence = 0.0
+            if not hasattr(bias_report, "warnings"):
+                bias_report.warnings = []
+            bias_report.warnings.append(
+                f"Unexpected error in poisoning detection: {str(e)}"
+            )
 
         # Augment poisoning detector's outliers with z-score based detection
         try:
-            z_outliers = detect_outliers_zscore(df, threshold=3.0)
-        except Exception:
+            z_outliers = detect_outliers_zscore(
+                df, threshold=DATASET_OUTLIER_ZSCORE_THRESHOLD
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning(f"Z-score outlier detection failed: {e}")
+            z_outliers = []
+        except Exception as e:
+            logger.error(
+                f"Unexpected error in z-score outlier detection: {e}", exc_info=True
+            )
             z_outliers = []
 
         # Merge unique indices from both detection methods
@@ -814,16 +867,23 @@ def analyze_dataset_impl(
         outlier_ratio = outlier_count / max(len(df), 1)
 
         # Update suspected poisoning based on combined analysis
-        suspected_poisoning = suspected_poisoning or (outlier_ratio > 0.05)
-        poisoning_confidence = max(poisoning_confidence, min(outlier_ratio * 10, 1.0))
+        suspected_poisoning = suspected_poisoning or (
+            outlier_ratio > DATASET_POISONING_THRESHOLD
+        )
+        poisoning_confidence = max(
+            poisoning_confidence,
+            min(outlier_ratio * DATASET_OUTLIER_CONFIDENCE_FACTOR, 1.0),
+        )
 
         # Calculate quality score (0-10)
-        quality_score = 10.0
-        quality_score -= outlier_ratio * 20  # Penalize outliers
-        quality_score -= bias_score * 3  # Penalize bias
+        quality_score = DATASET_QUALITY_SCORE_MAX
+        quality_score -= (
+            outlier_ratio * DATASET_OUTLIER_PENALTY_FACTOR
+        )  # Penalize outliers
+        quality_score -= bias_score * DATASET_BIAS_PENALTY_FACTOR  # Penalize bias
         if suspected_poisoning:
-            quality_score -= poisoning_confidence * 2
-        quality_score = max(0.0, min(10.0, quality_score))
+            quality_score -= poisoning_confidence * DATASET_POISONING_PENALTY_FACTOR
+        quality_score = max(0.0, min(DATASET_QUALITY_SCORE_MAX, quality_score))
 
         # Generate recommendations
         recommendations = []
@@ -831,7 +891,7 @@ def analyze_dataset_impl(
             recommendations.append(
                 f"Manually review {outlier_count} statistical outliers"
             )
-        if bias_score > 0.3:
+        if bias_score > DATASET_HIGH_BIAS_THRESHOLD:
             recommendations.append(
                 "Address class imbalance through resampling or class weighting"
             )
@@ -1137,7 +1197,7 @@ def parse_cve_results(tool_output: str) -> List[CVEResult]:
 
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse CVE results as JSON: {e}")
-        logger.debug(f"Tool output was: {tool_output[:200]}")
+        logger.debug(f"Tool output was: {tool_output[:TOOL_OUTPUT_LOG_PREVIEW_LENGTH]}")
         return []
     except Exception as e:
         logger.error(f"Unexpected error parsing CVE results: {e}", exc_info=True)
@@ -1196,7 +1256,7 @@ def parse_dataset_analysis(tool_output: str) -> Optional[DatasetAnalysisResult]:
 
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse dataset analysis as JSON: {e}")
-        logger.debug(f"Tool output was: {tool_output[:200]}")
+        logger.debug(f"Tool output was: {tool_output[:TOOL_OUTPUT_LOG_PREVIEW_LENGTH]}")
         return None
     except (ValueError, TypeError) as e:
         logger.error(f"Type conversion error in dataset analysis: {e}")
