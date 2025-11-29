@@ -8,7 +8,8 @@ This test suite covers:
 """
 
 import pytest
-from src.mcp.connectors import MCPConnector, ConnectorRegistry, load_default_connectors
+
+from src.mcp.connectors import ConnectorRegistry, MCPConnector, load_default_connectors
 
 
 class TestMCPConnector:
@@ -125,7 +126,9 @@ class TestConnectorRegistry:
         assert "conn2" in all_connectors
 
         # Modifying returned dict should not affect registry
-        all_connectors["conn3"] = MCPConnector(name="conn3", description="Third", config={})
+        all_connectors["conn3"] = MCPConnector(
+            name="conn3", description="Third", config={}
+        )
         assert "conn3" not in registry._connectors
 
     def test_all_empty_registry(self):

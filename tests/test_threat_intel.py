@@ -9,7 +9,8 @@ This test suite covers:
 """
 
 import pytest
-from src.security.threat_intel import ThreatIntelInsight, ThreatIntelAggregator
+
+from src.security.threat_intel import ThreatIntelAggregator, ThreatIntelInsight
 
 
 class TestThreatIntelInsight:
@@ -157,7 +158,9 @@ class TestThreatIntelAggregator:
         aggregator = ThreatIntelAggregator()
 
         # Add in random order
-        aggregator.add_dataset_findings(quality_score=9.0, suspected_poisoning=False)  # LOW
+        aggregator.add_dataset_findings(
+            quality_score=9.0, suspected_poisoning=False
+        )  # LOW
         aggregator.add_cve_summary(library="lib1", cve_count=1, severity="CRITICAL")
         aggregator.add_cve_summary(library="lib2", cve_count=1, severity="MEDIUM")
         aggregator.add_cve_summary(library="lib3", cve_count=1, severity="HIGH")

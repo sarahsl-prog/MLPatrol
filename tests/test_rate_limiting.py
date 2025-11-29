@@ -1,7 +1,9 @@
 """Tests for rate limiting functionality."""
 
 import time
+
 import pytest
+
 from src.utils.rate_limiter import RateLimiter
 
 
@@ -13,7 +15,9 @@ class TestRateLimiter:
         limiter = RateLimiter(max_calls=5, period=10)
 
         for i in range(5):
-            assert limiter.is_allowed("test_key") is True, f"Call {i+1} should be allowed"
+            assert (
+                limiter.is_allowed("test_key") is True
+            ), f"Call {i+1} should be allowed"
 
     def test_blocks_calls_over_limit(self):
         """Test that calls over the limit are blocked."""

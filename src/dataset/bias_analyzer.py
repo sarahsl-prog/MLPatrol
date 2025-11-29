@@ -26,7 +26,9 @@ class BiasAnalyzer:
     def __init__(self, imbalance_threshold: float = 0.3) -> None:
         self.imbalance_threshold = imbalance_threshold
 
-    def detect_label_column(self, df: pd.DataFrame, preferred: Optional[str] = None) -> Optional[str]:
+    def detect_label_column(
+        self, df: pd.DataFrame, preferred: Optional[str] = None
+    ) -> Optional[str]:
         if preferred and preferred in df.columns:
             return preferred
         for candidate in ("label", "target", "y"):
@@ -34,7 +36,9 @@ class BiasAnalyzer:
                 return candidate
         return df.columns[-1] if not df.columns.empty else None
 
-    def analyze(self, df: pd.DataFrame, label_column: Optional[str] = None) -> BiasReport:
+    def analyze(
+        self, df: pd.DataFrame, label_column: Optional[str] = None
+    ) -> BiasReport:
         """Compute class distribution, imbalance scores, and warnings."""
         target_col = self.detect_label_column(df, label_column)
         warnings: List[str] = []
@@ -52,7 +56,12 @@ class BiasAnalyzer:
                 if pd.isna(label):
                     key = "NaN"
                 elif isinstance(label, (int, float, np.integer, np.floating)):
-                    key = str(int(label) if isinstance(label, (np.integer, int)) or float(label).is_integer() else float(label))
+                    key = str(
+                        int(label)
+                        if isinstance(label, (np.integer, int))
+                        or float(label).is_integer()
+                        else float(label)
+                    )
                 else:
                     key = str(label)
                 distribution[key] = float(count / total)

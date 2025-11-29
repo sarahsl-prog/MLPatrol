@@ -3,11 +3,11 @@ import pandas as pd
 from scipy import stats
 
 from src.dataset.statistical_tests import (
+    chi2_of_categorical,
     compute_z_scores,
+    dataset_summary,
     detect_outliers_zscore,
     ks_test_between_columns,
-    chi2_of_categorical,
-    dataset_summary,
 )
 
 

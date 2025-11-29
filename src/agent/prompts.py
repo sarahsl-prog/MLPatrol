@@ -7,6 +7,7 @@ This module contains all the prompts used by the MLPatrol agent, including:
 """
 
 from typing import Dict, List
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 # ============================================================================
@@ -316,6 +317,7 @@ Generate a complete, production-ready Python script:
 # LangChain Prompt Templates
 # ============================================================================
 
+
 def get_agent_prompt() -> ChatPromptTemplate:
     """Get the main agent prompt template.
 
@@ -329,13 +331,15 @@ def get_agent_prompt() -> ChatPromptTemplate:
         ...     agent_scratchpad=[]
         ... )
     """
-    return ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("system", FEW_SHOT_EXAMPLES),
-        MessagesPlaceholder(variable_name="chat_history", optional=True),
-        ("user", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            ("system", FEW_SHOT_EXAMPLES),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            ("user", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
 
 
 def get_classification_prompt() -> ChatPromptTemplate:
@@ -344,10 +348,12 @@ def get_classification_prompt() -> ChatPromptTemplate:
     Returns:
         ChatPromptTemplate for classifying user queries
     """
-    return ChatPromptTemplate.from_messages([
-        ("system", "You are an expert at classifying ML security queries."),
-        ("user", QUERY_CLASSIFICATION_PROMPT),
-    ])
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are an expert at classifying ML security queries."),
+            ("user", QUERY_CLASSIFICATION_PROMPT),
+        ]
+    )
 
 
 def get_planning_prompt() -> ChatPromptTemplate:
@@ -356,10 +362,15 @@ def get_planning_prompt() -> ChatPromptTemplate:
     Returns:
         ChatPromptTemplate for creating execution plans
     """
-    return ChatPromptTemplate.from_messages([
-        ("system", "You are an expert at planning multi-step security analysis tasks."),
-        ("user", PLANNING_PROMPT),
-    ])
+    return ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You are an expert at planning multi-step security analysis tasks.",
+            ),
+            ("user", PLANNING_PROMPT),
+        ]
+    )
 
 
 def get_synthesis_prompt() -> ChatPromptTemplate:
@@ -368,10 +379,12 @@ def get_synthesis_prompt() -> ChatPromptTemplate:
     Returns:
         ChatPromptTemplate for synthesizing tool results
     """
-    return ChatPromptTemplate.from_messages([
-        ("system", "You are an expert at synthesizing security analysis results."),
-        ("user", SYNTHESIS_PROMPT),
-    ])
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are an expert at synthesizing security analysis results."),
+            ("user", SYNTHESIS_PROMPT),
+        ]
+    )
 
 
 # ============================================================================
@@ -413,5 +426,10 @@ VALIDATION_PATTERNS = {
     "cve_id": r"CVE-\d{4}-\d{4,7}",
     "library_name": r"^[a-zA-Z0-9_-]+$",
     "severity": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"],
-    "query_types": ["CVE_MONITORING", "DATASET_ANALYSIS", "CODE_GENERATION", "GENERAL_SECURITY"],
+    "query_types": [
+        "CVE_MONITORING",
+        "DATASET_ANALYSIS",
+        "CODE_GENERATION",
+        "GENERAL_SECURITY",
+    ],
 }

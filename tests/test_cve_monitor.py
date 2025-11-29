@@ -8,10 +8,12 @@ This test suite covers:
 - Error handling
 """
 
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch, MagicMock
-from src.security.cve_monitor import CVERecord, CVEMonitor, CVEMonitorError
+
+from src.security.cve_monitor import CVEMonitor, CVEMonitorError, CVERecord
 
 
 class TestCVERecord:
