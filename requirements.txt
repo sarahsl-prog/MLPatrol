@@ -35,6 +35,7 @@ langchain-tavily>=0.2.0  # LangChain Tavily integration
 pydantic>=2.10.0
 pyyaml>=6.0.2
 markdown>=3.7.0
+loguru>=0.7.0  # Advanced logging with rotation and formatting
 
 # LLM Provider SDKs
 openai>=1.58.0  # For OpenAI models
