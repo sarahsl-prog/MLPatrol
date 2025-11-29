@@ -137,10 +137,12 @@ class DatasetAnalysisResult:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
+        outlier_ratio = self.outlier_count / max(self.num_rows, 1)
         return {
             "num_rows": self.num_rows,
             "num_features": self.num_features,
             "outlier_count": self.outlier_count,
+            "outlier_ratio": outlier_ratio,
             # Provide both a truncated sample and a fuller outliers list (truncated to reasonable size)
             "outliers_sample": self.outliers[:10],  # Only first 10 for brevity
             "outliers": self.outliers[:OUTLIER_PREVIEW_LIMIT],

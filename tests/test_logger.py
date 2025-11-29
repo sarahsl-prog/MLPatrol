@@ -25,6 +25,8 @@ class TestConfigureLogging:
         logger_module._configured = False
         # Clear existing handlers
         logging.root.handlers = []
+        # Reset root logger level to NOTSET
+        logging.root.setLevel(logging.NOTSET)
 
     def teardown_method(self):
         """Clean up after each test."""
@@ -32,6 +34,7 @@ class TestConfigureLogging:
 
         logger_module._configured = False
         logging.root.handlers = []
+        logging.root.setLevel(logging.WARNING)  # Reset to default
         os.environ.pop("MLPATROL_LOG_LEVEL", None)
 
     def test_configure_logging_default_level(self):
@@ -119,6 +122,8 @@ class TestGetLogger:
 
         logger_module._configured = False
         logging.root.handlers = []
+        # Reset root logger level to NOTSET
+        logging.root.setLevel(logging.NOTSET)
 
     def teardown_method(self):
         """Clean up after each test."""
@@ -126,6 +131,7 @@ class TestGetLogger:
 
         logger_module._configured = False
         logging.root.handlers = []
+        logging.root.setLevel(logging.WARNING)  # Reset to default
         os.environ.pop("MLPATROL_LOG_LEVEL", None)
 
     def test_get_logger_returns_logger(self):
