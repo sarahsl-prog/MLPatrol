@@ -35,9 +35,15 @@ examples/sample_datasets/*.parquet
 # Logs
 *.log
 logs/
+.last_cve_check 
 
 # Gradio
 gradio_queue.db
 flagged/
 
 .claude_cache/
+
+# Data folders
+data/
+output/
+results/
