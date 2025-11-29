@@ -1,9 +1,9 @@
 """Rate limiting utilities for Gradio endpoints."""
 
+import threading
 from functools import wraps
 from time import time
 from typing import Any, Callable, Dict
-import threading
 
 
 class RateLimiter:
@@ -56,6 +56,7 @@ class RateLimiter:
         Returns:
             Wrapped function that enforces rate limits
         """
+
         @wraps(func)
         def wrapper(*args, **kwargs) -> Any:
             # Use function name as key (could be improved with user ID/IP)
@@ -79,18 +80,12 @@ class RateLimiter:
 # Create rate limiters for different endpoints
 # Adjust these limits based on your server capacity and requirements
 
-cve_search_limiter = RateLimiter(
-    max_calls=10, period=60
-)  # 10 requests per minute
+cve_search_limiter = RateLimiter(max_calls=10, period=60)  # 10 requests per minute
 
 dataset_analysis_limiter = RateLimiter(
     max_calls=5, period=60
 )  # 5 requests per minute (resource-intensive)
 
-code_gen_limiter = RateLimiter(
-    max_calls=20, period=60
-)  # 20 requests per minute
+code_gen_limiter = RateLimiter(max_calls=20, period=60)  # 20 requests per minute
 
-chat_limiter = RateLimiter(
-    max_calls=30, period=60
-)  # 30 requests per minute
+chat_limiter = RateLimiter(max_calls=30, period=60)  # 30 requests per minute

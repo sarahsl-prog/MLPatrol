@@ -9,9 +9,11 @@ This test suite covers:
 
 import logging
 import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from src.utils.logger import configure_logging, get_logger, DEFAULT_FORMAT
+
+from src.utils.logger import DEFAULT_FORMAT, configure_logging, get_logger
 
 
 class TestConfigureLogging:

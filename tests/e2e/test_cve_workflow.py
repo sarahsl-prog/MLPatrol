@@ -7,9 +7,11 @@ This test suite covers the complete workflow:
 4. CVE details retrieved
 """
 
-import pytest
 import json
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
+import pytest
+
 from src.security.cve_monitor import CVEMonitor
 
 
@@ -39,7 +41,9 @@ class TestCVEMonitoringWorkflow:
                                 }
                             ]
                         },
-                        "references": [{"url": "https://nvd.nist.gov/vuln/detail/CVE-2024-0001"}],
+                        "references": [
+                            {"url": "https://nvd.nist.gov/vuln/detail/CVE-2024-0001"}
+                        ],
                     }
                 }
             ]
@@ -119,7 +123,12 @@ class TestCVEMonitoringWorkflow:
                         "published": "2024-01-01",
                         "metrics": {
                             "cvssMetricV31": [
-                                {"cvssData": {"baseScore": 9.8, "baseSeverity": "CRITICAL"}}
+                                {
+                                    "cvssData": {
+                                        "baseScore": 9.8,
+                                        "baseSeverity": "CRITICAL",
+                                    }
+                                }
                             ]
                         },
                         "references": [],

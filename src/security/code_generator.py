@@ -31,7 +31,7 @@ def _sanitize_identifier(name: str) -> str:
 def _escape_docstring_text(value: str) -> str:
     if not value:
         return "Security validation"
-    return value.replace('"""', '\"\"\"').strip()
+    return value.replace('"""', '"""').strip()
 
 
 def _can_direct_import(name: str) -> bool:
@@ -65,7 +65,9 @@ def _version_helper_block() -> str:
     )
 
 
-def _build_common_header(library: str, purpose: str, cve_id: Optional[str], alias: str) -> str:
+def _build_common_header(
+    library: str, purpose: str, cve_id: Optional[str], alias: str
+) -> str:
     purpose_text = _escape_docstring_text(purpose)
     doc_lines = [
         '"""',
@@ -310,4 +312,6 @@ def build_security_script(
     if cve_id or "cve" in (purpose or "").lower():
         return build_cve_security_script(purpose, library, cve_id, affected_versions)
     return build_general_security_script(purpose, library, affected_versions)
-# Code Generator 
+
+
+# Code Generator

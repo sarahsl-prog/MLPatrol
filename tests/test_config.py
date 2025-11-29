@@ -8,10 +8,12 @@ This test suite covers:
 """
 
 import os
-import pytest
 from pathlib import Path
-from unittest.mock import patch, Mock
-from src.utils.config import Settings, get_settings, refresh_settings, _load_env_file
+from unittest.mock import Mock, patch
+
+import pytest
+
+from src.utils.config import Settings, _load_env_file, get_settings, refresh_settings
 
 
 class TestSettings:

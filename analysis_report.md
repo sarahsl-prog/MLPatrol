@@ -8,8 +8,8 @@ This report details the findings from an analysis of the MLPatrol codebase again
 ### 1. Unsafe Numpy Usage in `tools.py`
 **Severity:** High
 **Location:** `src/agent/tools.py`
-**Problem:** 
-The `analyze_dataset_impl` function relies on `numpy` (as `np`), but `numpy` is imported at the very end of the file inside a `try-except` block. 
+**Problem:**
+The `analyze_dataset_impl` function relies on `numpy` (as `np`), but `numpy` is imported at the very end of the file inside a `try-except` block.
 - If `numpy` is not installed, `np` is set to `None`.
 - `analyze_dataset_impl` calls `np.abs()` and `np.where()` without checking if `np` is available.
 - This will cause an `AttributeError: 'NoneType' object has no attribute 'abs'` at runtime if `numpy` is missing.
@@ -40,7 +40,7 @@ These files exist but contain only a header comment. The user request explicitly
 - While the regex approach is efficient, it strictly contradicts the "Agent Reasoning Flow" described in the documentation.
 
 **Fix:**
-- Update the code to use the LLM for classification as described in the documentation (using `QUERY_CLASSIFICATION_PROMPT`), OR update the documentation to reflect the optimization. 
+- Update the code to use the LLM for classification as described in the documentation (using `QUERY_CLASSIFICATION_PROMPT`), OR update the documentation to reflect the optimization.
 - *Recommendation:* Implement the LLM-based classification as the primary method to match the "Agentic" design, potentially with regex as a fallback or optimization, to fulfill the requirement of matching the documentation.
 
 ### 4. Incomplete Security Code Generation

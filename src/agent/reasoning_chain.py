@@ -5,38 +5,39 @@ through multi-step reasoning, tool execution, and result synthesis using LangGra
 """
 
 import logging
-import time
 import re
-from typing import Dict, List, Optional, Any, Tuple, Annotated, TypedDict
+import time
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict
 
 try:
     # Use the modern langchain.agents.create_agent (LangGraph 1.0+)
     # This replaces the deprecated langgraph.prebuilt.create_react_agent
     from langchain.agents import create_agent as create_react_agent  # type: ignore
-    from langgraph.graph import StateGraph, END
+    from langgraph.graph import END, StateGraph
 except Exception:
     try:
         # Fallback to legacy langgraph.prebuilt for older versions
+        from langgraph.graph import END, StateGraph
         from langgraph.prebuilt import create_react_agent  # type: ignore
-        from langgraph.graph import StateGraph, END
     except Exception:
         # If neither import is available, keep names defined as None and allow
         # the setup logic to raise a clear error when attempting to use them.
         create_react_agent = None  # type: ignore
         from langgraph.graph import StateGraph, END
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 
 from .prompts import (
+    VALIDATION_PATTERNS,
     get_agent_prompt,
     get_classification_prompt,
-    get_synthesis_prompt,
-    VALIDATION_PATTERNS,
     get_error_message,
+    get_synthesis_prompt,
 )
 from .tools import create_mlpatrol_tools, parse_cve_results, parse_dataset_analysis
 
@@ -94,9 +95,11 @@ class ReasoningStep:
             "thought": self.thought,
             "action": self.action,
             "action_input": self.action_input,
-            "observation": self.observation[:500] + "..."
-            if len(self.observation) > 500
-            else self.observation,
+            "observation": (
+                self.observation[:500] + "..."
+                if len(self.observation) > 500
+                else self.observation
+            ),
             "timestamp": self.timestamp,
             "duration_ms": round(self.duration_ms, 2),
         }
@@ -749,12 +752,14 @@ class MLPatrolAgent:
                         if step.observation and len(step.observation) > 50:
                             # Try to extract the first sentence or meaningful content
                             first_part = step.observation[:300].strip()
-                            if '\n' in first_part:
-                                first_part = first_part.split('\n')[0]
+                            if "\n" in first_part:
+                                first_part = first_part.split("\n")[0]
                             recent_results.append(first_part)
 
                     if recent_results:
-                        answer = "Based on my analysis:\n\n" + "\n\n".join(recent_results)
+                        answer = "Based on my analysis:\n\n" + "\n\n".join(
+                            recent_results
+                        )
                         if len(reasoning_steps) > 3:
                             answer += f"\n\n(Analysis completed using {len(reasoning_steps)} steps. See reasoning chain for full details.)"
                     else:

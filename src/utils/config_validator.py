@@ -4,10 +4,10 @@ This module validates environment configuration at startup to provide
 clear, actionable error messages before the application starts.
 """
 
-import os
 import logging
-from typing import Dict, List, Optional, Tuple
+import os
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ class ValidationResult:
         warnings: List of warning messages
         config_summary: Summary of detected configuration
     """
+
     valid: bool
     errors: List[str]
     warnings: List[str]
@@ -55,7 +56,9 @@ def validate_config() -> ValidationResult:
         config_summary["llm_url"] = url
 
         if not url.startswith("http://") and not url.startswith("https://"):
-            errors.append(f"LOCAL_LLM_URL must start with http:// or https://, got: {url}")
+            errors.append(
+                f"LOCAL_LLM_URL must start with http:// or https://, got: {url}"
+            )
 
     else:
         # Validate cloud LLM configuration
@@ -145,7 +148,9 @@ def validate_config() -> ValidationResult:
             warnings.append("MAX_AGENT_ITERATIONS must be >= 1, using default: 10")
             max_iter = 10
         elif max_iter > 50:
-            warnings.append("MAX_AGENT_ITERATIONS > 50 may cause very long execution times")
+            warnings.append(
+                "MAX_AGENT_ITERATIONS > 50 may cause very long execution times"
+            )
         config_summary["max_iterations"] = str(max_iter)
     except ValueError:
         warnings.append("MAX_AGENT_ITERATIONS must be a number, using default: 10")
@@ -155,7 +160,7 @@ def validate_config() -> ValidationResult:
         valid=len(errors) == 0,
         errors=errors,
         warnings=warnings,
-        config_summary=config_summary
+        config_summary=config_summary,
     )
 
 
@@ -165,9 +170,9 @@ def print_validation_results(result: ValidationResult) -> None:
     Args:
         result: ValidationResult to print
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("MLPatrol Configuration Validation")
-    print("="*70)
+    print("=" * 70)
 
     # Print configuration summary
     print("\n📋 Configuration Summary:")
@@ -189,7 +194,7 @@ def print_validation_results(result: ValidationResult) -> None:
     else:
         print("\n✅ Configuration is valid!")
 
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
 
 def validate_and_exit_on_error() -> None:

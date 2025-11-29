@@ -1256,7 +1256,9 @@ def handle_chat(
         logger.error(f"Chat failed: {e}", exc_info=True)
         error_msg = f"❌ Error: {str(e)}"
         history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": f"I encountered an error: {str(e)}"})
+        history.append(
+            {"role": "assistant", "content": f"I encountered an error: {str(e)}"}
+        )
         return history, "", error_msg
 
 

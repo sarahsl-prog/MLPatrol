@@ -45,9 +45,19 @@ class ThreatIntelAggregator:
             )
         )
 
-    def add_dataset_findings(self, quality_score: float, suspected_poisoning: bool) -> None:
-        severity = "HIGH" if suspected_poisoning else ("MEDIUM" if quality_score < 7 else "LOW")
-        status = "Potential poisoning indicators detected." if suspected_poisoning else "Dataset quality degraded."
+    def add_dataset_findings(
+        self, quality_score: float, suspected_poisoning: bool
+    ) -> None:
+        severity = (
+            "HIGH"
+            if suspected_poisoning
+            else ("MEDIUM" if quality_score < 7 else "LOW")
+        )
+        status = (
+            "Potential poisoning indicators detected."
+            if suspected_poisoning
+            else "Dataset quality degraded."
+        )
         details = f"{status} Quality score recorded at {quality_score:.1f}/10."
         self._insights.append(
             ThreatIntelInsight(

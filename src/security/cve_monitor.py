@@ -71,12 +71,18 @@ class CVEMonitor:
             severity = cvss_data.get("baseSeverity", "UNKNOWN")
 
         descriptions = cve.get("descriptions", [])
-        description = descriptions[0].get("value", "No description") if descriptions else "No description"
+        description = (
+            descriptions[0].get("value", "No description")
+            if descriptions
+            else "No description"
+        )
         references = [ref.get("url") for ref in cve.get("references", [])][:3]
 
         return CVERecord(
             cve_id=cve_id,
-            description=description[:200] + "..." if len(description) > 200 else description,
+            description=(
+                description[:200] + "..." if len(description) > 200 else description
+            ),
             cvss_score=cvss_score,
             severity=severity,
             affected_versions=["See references for details"],
@@ -108,7 +114,9 @@ class CVEMonitor:
 
         data = response.json()
         vulnerabilities = data.get("vulnerabilities", [])
-        records = [self._format_cve(vuln, library).to_dict() for vuln in vulnerabilities]
+        records = [
+            self._format_cve(vuln, library).to_dict() for vuln in vulnerabilities
+        ]
 
         return {
             "library": library,

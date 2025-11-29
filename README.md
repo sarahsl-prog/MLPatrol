@@ -27,10 +27,10 @@ Current tools either focus narrowly on one aspect or require deep security knowl
 
 MLPatrol is an intelligent agent that acts as your personal ML security researcher. It:
 
-🔍 **Monitors Threats** - Automatically searches for latest CVEs in ML libraries  
-🧠 **Reasons Through Risks** - Uses multi-step agent reasoning to analyze exploit mechanisms  
-📊 **Analyzes Datasets** - Detects poisoning, bias, and statistical anomalies  
-💻 **Generates Code** - Creates runnable security validation scripts  
+🔍 **Monitors Threats** - Automatically searches for latest CVEs in ML libraries
+🧠 **Reasons Through Risks** - Uses multi-step agent reasoning to analyze exploit mechanisms
+📊 **Analyzes Datasets** - Detects poisoning, bias, and statistical anomalies
+💻 **Generates Code** - Creates runnable security validation scripts
 📝 **Explains Everything** - Shows its reasoning process transparently
 
 ### Why MLPatrol?
@@ -107,7 +107,7 @@ def check_sklearn_vulnerability():
     """Check for pickle deserialization vulnerability in scikit-learn"""
     version = sklearn.__version__
     vulnerable_versions = ["1.2.0", "1.2.1", "1.3.0", "1.3.1", "1.3.2"]
-    
+
     if version in vulnerable_versions:
         print(f"⚠️  VULNERABLE: sklearn {version}")
         print("Recommendation: Upgrade to sklearn >= 1.3.3")
@@ -324,7 +324,7 @@ MLPatrol is designed for extensibility beyond the hackathon:
 
 ## 🏆 Hackathon Submission
 
-**Track:** Agent Apps - Productivity Category  
+**Track:** Agent Apps - Productivity Category
 **Tags:** `agent-app-track-productivity`
 
 **Required Links:**
@@ -368,8 +368,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📬 Contact
 
-**Project Maintainer:** [Sarah Sund-Lussier]  
-**Email:** [ssundlussier@gmail.com]  
+**Project Maintainer:** [Sarah Sund-Lussier]
+**Email:** [ssundlussier@gmail.com]
 
 
 **Hackathon Links:**

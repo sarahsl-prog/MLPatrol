@@ -9,10 +9,12 @@ This test suite covers the complete workflow:
 6. Report generated with results
 """
 
-import pytest
 import json
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+import pytest
+
 from src.agent.tools import analyze_dataset_impl
 
 
@@ -66,8 +68,32 @@ class TestDatasetAnalysisWorkflow:
         # Create dataset with more data points and extreme outliers to ensure z-score > 3.0
         df = pd.DataFrame(
             {
-                "feature1": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10000],  # 10000 is extreme outlier
-                "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 9999.9],  # 9999.9 is extreme outlier
+                "feature1": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    10000,
+                ],  # 10000 is extreme outlier
+                "feature2": [
+                    0.1,
+                    0.2,
+                    0.3,
+                    0.4,
+                    0.5,
+                    0.6,
+                    0.7,
+                    0.8,
+                    0.9,
+                    1.0,
+                    9999.9,
+                ],  # 9999.9 is extreme outlier
                 "label": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
             }
         )
@@ -84,9 +110,7 @@ class TestDatasetAnalysisWorkflow:
     def test_workflow_with_small_dataset(self, tmp_path):
         """Test workflow handles small datasets appropriately."""
         # Create minimal dataset (2 rows - minimum required)
-        df = pd.DataFrame(
-            {"feature1": [1.0, 2.0], "label": [0, 1]}
-        )
+        df = pd.DataFrame({"feature1": [1.0, 2.0], "label": [0, 1]})
         path = tmp_path / "small.csv"
         df.to_csv(path, index=False)
 
@@ -115,7 +139,10 @@ class TestDatasetAnalysisWorkflow:
         result = json.loads(result_json)
 
         assert result["status"] == "error"
-        assert "not found" in result["message"].lower() or "no such file" in result["message"].lower()
+        assert (
+            "not found" in result["message"].lower()
+            or "no such file" in result["message"].lower()
+        )
 
     def test_workflow_with_json_data(self):
         """Test workflow with JSON data instead of CSV file."""
@@ -175,10 +202,7 @@ class TestDatasetAnalysisWorkflow:
 
         # Create a medium dataset (1000 rows)
         df = pd.DataFrame(
-            {
-                f"feature{i}": [j * 0.1 for j in range(1000)]
-                for i in range(10)
-            }
+            {f"feature{i}": [j * 0.1 for j in range(1000)] for i in range(10)}
         )
         df["label"] = [i % 2 for i in range(1000)]
         path = tmp_path / "medium.csv"

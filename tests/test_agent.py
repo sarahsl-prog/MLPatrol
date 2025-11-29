@@ -7,23 +7,23 @@ This test suite covers:
 - Edge cases
 """
 
-import pytest
 import time
-from unittest.mock import Mock, MagicMock, patch, call
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, Mock, call, patch
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agent.reasoning_chain import (
-    MLPatrolAgent,
-    QueryType,
-    AgentResult,
-    ReasoningStep,
     AgentError,
+    AgentResult,
+    MLPatrolAgent,
     QueryClassificationError,
+    QueryType,
+    ReasoningStep,
     ToolExecutionError,
     create_mlpatrol_agent,
 )
-from langchain_core.messages import AIMessage, HumanMessage
-
 
 # ============================================================================
 # Fixtures
@@ -47,19 +47,19 @@ def mock_tools():
     tool1 = StructuredTool.from_function(
         name="cve_search",
         description="Search for CVEs",
-        func=lambda library, days_back=90: '{"status": "success"}'
+        func=lambda library, days_back=90: '{"status": "success"}',
     )
 
     tool2 = StructuredTool.from_function(
         name="web_search",
         description="Search the web",
-        func=lambda query, max_results=5: '{"status": "success"}'
+        func=lambda query, max_results=5: '{"status": "success"}',
     )
 
     tool3 = StructuredTool.from_function(
         name="analyze_dataset",
         description="Analyze dataset security",
-        func=lambda data_path=None, data_json=None: '{"status": "success"}'
+        func=lambda data_path=None, data_json=None: '{"status": "success"}',
     )
 
     return [tool1, tool2, tool3]
@@ -68,7 +68,9 @@ def mock_tools():
 @pytest.fixture
 def agent(mock_llm, mock_tools):
     """Create a test agent instance."""
-    with patch('src.agent.reasoning_chain.create_mlpatrol_tools', return_value=mock_tools):
+    with patch(
+        "src.agent.reasoning_chain.create_mlpatrol_tools", return_value=mock_tools
+    ):
         agent_instance = MLPatrolAgent(llm=mock_llm, verbose=False, max_iterations=10)
         return agent_instance
 
@@ -83,11 +85,11 @@ def mock_agent_result():
                 Mock(
                     tool="cve_search",
                     tool_input={"library": "numpy", "days_back": 90},
-                    log="I need to search for CVEs in numpy"
+                    log="I need to search for CVEs in numpy",
                 ),
-                '{"status": "success", "cve_count": 2}'
+                '{"status": "success", "cve_count": 2}',
             )
-        ]
+        ],
     }
 
 
@@ -136,10 +138,7 @@ class TestQueryClassification:
         """Test classification with additional context."""
         mock_llm.invoke.return_value = AIMessage(content="DATASET_ANALYSIS")
 
-        context = {
-            "file_path": "/path/to/data.csv",
-            "dataset": True
-        }
+        context = {"file_path": "/path/to/data.csv", "dataset": True}
 
         query_type = agent.analyze_query("Check this data", context=context)
 
@@ -186,7 +185,7 @@ class TestToolOrchestration:
             action_input={"library": "numpy"},
             observation="Found 2 CVEs",
             timestamp=time.time(),
-            duration_ms=150.5
+            duration_ms=150.5,
         )
 
         step_dict = step.to_dict()
@@ -204,7 +203,7 @@ class TestToolOrchestration:
             action="cve_search",
             action_input={},
             observation=long_text,
-            timestamp=time.time()
+            timestamp=time.time(),
         )
 
         step_dict = step.to_dict()
@@ -216,9 +215,7 @@ class TestToolOrchestration:
         """Test that confidence is always between 0 and 1."""
         # Test with no tools
         result_no_tools = agent._calculate_confidence(
-            QueryType.GENERAL_SECURITY,
-            [],
-            []
+            QueryType.GENERAL_SECURITY, [], []
         )
         assert 0.0 <= result_no_tools <= 1.0
 
@@ -229,9 +226,7 @@ class TestToolOrchestration:
         ]
 
         result_with_tools = agent._calculate_confidence(
-            QueryType.CVE_MONITORING,
-            steps,
-            ["cve_search", "web_search"]
+            QueryType.CVE_MONITORING, steps, ["cve_search", "web_search"]
         )
         assert 0.0 <= result_with_tools <= 1.0
         assert result_with_tools > result_no_tools
@@ -262,7 +257,9 @@ class TestErrorHandling:
 
     def test_validate_query_suspicious_script_tag(self, agent):
         """Test validation detects suspicious script tags."""
-        is_valid, error = agent._validate_query("Check numpy <script>alert('xss')</script>")
+        is_valid, error = agent._validate_query(
+            "Check numpy <script>alert('xss')</script>"
+        )
 
         assert not is_valid
         assert "unsafe" in error.lower()
@@ -332,7 +329,7 @@ class TestEdgeCases:
             tools_used=["cve_search"],
             query_type=QueryType.CVE_MONITORING,
             confidence=0.85,
-            total_duration_ms=1250.5
+            total_duration_ms=1250.5,
         )
 
         result_dict = result.to_dict()
@@ -353,18 +350,18 @@ class TestEdgeCases:
 class TestFactoryFunctions:
     """Tests for factory functions."""
 
-    @patch('langchain_anthropic.ChatAnthropic')
+    @patch("langchain_anthropic.ChatAnthropic")
     def test_create_mlpatrol_agent_with_claude(self, mock_claude, mock_tools):
         """Test creating agent with Claude model."""
         mock_llm_instance = Mock()
         mock_llm_instance.bind_tools = Mock(return_value=mock_llm_instance)
         mock_claude.return_value = mock_llm_instance
 
-        with patch('src.agent.reasoning_chain.create_mlpatrol_tools', return_value=mock_tools):
+        with patch(
+            "src.agent.reasoning_chain.create_mlpatrol_tools", return_value=mock_tools
+        ):
             agent = create_mlpatrol_agent(
-                api_key="test-key",
-                model="claude-sonnet-4",
-                verbose=False
+                api_key="test-key", model="claude-sonnet-4", verbose=False
             )
 
         assert agent is not None
@@ -372,18 +369,18 @@ class TestFactoryFunctions:
         assert mock_claude.call_args[1]["model"] == "claude-sonnet-4"
         assert mock_claude.call_args[1]["anthropic_api_key"] == "test-key"
 
-    @patch('langchain_openai.ChatOpenAI')
+    @patch("langchain_openai.ChatOpenAI")
     def test_create_mlpatrol_agent_with_gpt4(self, mock_openai, mock_tools):
         """Test creating agent with GPT-4 model."""
         mock_llm_instance = Mock()
         mock_llm_instance.bind_tools = Mock(return_value=mock_llm_instance)
         mock_openai.return_value = mock_llm_instance
 
-        with patch('src.agent.reasoning_chain.create_mlpatrol_tools', return_value=mock_tools):
+        with patch(
+            "src.agent.reasoning_chain.create_mlpatrol_tools", return_value=mock_tools
+        ):
             agent = create_mlpatrol_agent(
-                api_key="test-key",
-                model="gpt-4",
-                verbose=False
+                api_key="test-key", model="gpt-4", verbose=False
             )
 
         assert agent is not None
@@ -394,7 +391,5 @@ class TestFactoryFunctions:
         """Test that unsupported model raises error."""
         with pytest.raises(ValueError, match="Unsupported model"):
             create_mlpatrol_agent(
-                api_key="test-key",
-                model="unsupported-model",
-                verbose=False
+                api_key="test-key", model="unsupported-model", verbose=False
             )

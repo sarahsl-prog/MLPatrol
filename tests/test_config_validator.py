@@ -9,14 +9,16 @@ This test suite covers:
 """
 
 import os
-import pytest
 from io import StringIO
 from unittest.mock import patch
+
+import pytest
+
 from src.utils.config_validator import (
     ValidationResult,
-    validate_config,
     print_validation_results,
     validate_and_exit_on_error,
+    validate_config,
 )
 
 
@@ -73,7 +75,9 @@ class TestValidateConfig:
 
     def test_valid_config_with_anthropic(self):
         """Test valid configuration with Anthropic API key."""
-        os.environ["ANTHROPIC_API_KEY"] = "sk-ant-1234567890123456789012345678901234567890"
+        os.environ["ANTHROPIC_API_KEY"] = (
+            "sk-ant-1234567890123456789012345678901234567890"
+        )
 
         result = validate_config()
 
@@ -396,7 +400,9 @@ class TestValidateConfig:
 
     def test_complete_valid_config(self):
         """Test completely valid configuration with all options."""
-        os.environ["ANTHROPIC_API_KEY"] = "sk-ant-1234567890123456789012345678901234567890"
+        os.environ["ANTHROPIC_API_KEY"] = (
+            "sk-ant-1234567890123456789012345678901234567890"
+        )
         os.environ["OPENAI_API_KEY"] = "sk-1234567890123456789012345678901234567890"
         os.environ["NVD_API_KEY"] = "nvd-api-key-12345"
         os.environ["ENABLE_WEB_SEARCH"] = "true"

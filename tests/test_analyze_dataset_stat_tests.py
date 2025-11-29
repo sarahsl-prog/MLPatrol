@@ -1,4 +1,5 @@
 import json
+
 import pandas as pd
 
 from src.agent.tools import analyze_dataset_impl
@@ -50,6 +51,6 @@ def test_analyze_dataset_stat_tests_values_shape():
     data = json.loads(result)
 
     ks = data.get("stat_tests", {}).get("ks_tests", {})
-    for k, v in ks.items():
+    for _k, v in ks.items():
         assert isinstance(v, dict)
         assert "stat" in v and "pvalue" in v
