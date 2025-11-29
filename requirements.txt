@@ -29,6 +29,7 @@ httpx>=0.28.0
 
 # Web Search APIs (optional but recommended)
 tavily-python>=0.3.0  # Tavily AI search API
+langchain-tavily>=0.2.0  # LangChain Tavily integration
 
 # Utilities
 pydantic>=2.10.0
