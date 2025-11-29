@@ -5,41 +5,41 @@ gradio>=5.0.0
 python-dotenv>=1.0.0
 
 # Agent Framework - Modern LangGraph stack
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-openai>=0.2.0
-langchain-anthropic>=0.3.0
-langchain-community>=0.3.0
-langgraph>=0.2.0
+langchain>=0.3.9
+langchain-core>=0.3.21
+langchain-openai>=0.2.9
+langchain-anthropic>=0.3.7
+langchain-community>=0.3.8
+langgraph>=0.2.55
 
 # Data Analysis
 numpy>=2.1.0  # Python 3.13+ requires numpy 2.x
-pandas>=2.1.0
-scikit-learn>=1.3.0
-scipy>=1.11.0
+pandas>=2.2.0
+scikit-learn>=1.5.0
+scipy>=1.14.0
 
 # Visualization
-matplotlib>=3.8.0
+matplotlib>=3.9.0
 seaborn>=0.13.0
-plotly>=5.18.0
+plotly>=5.24.0
 
 # API & Web
-requests>=2.31.0
-httpx>=0.25.0
+requests>=2.32.0
+httpx>=0.28.0
 
 # Web Search APIs (optional but recommended)
 tavily-python>=0.3.0  # Tavily AI search API
 
 # Utilities
-pydantic>=2.5.0
-pyyaml>=6.0.1
-markdown>=3.5.0
+pydantic>=2.10.0
+pyyaml>=6.0.2
+markdown>=3.7.0
 
 # LLM Provider SDKs
-openai>=2.0.0  # For OpenAI models
-anthropic>=0.25.0  # For Claude models
+openai>=1.58.0  # For OpenAI models
+anthropic>=0.40.0  # For Claude models
 langchain-ollama>=0.2.0  # For Ollama local models
 
 # Testing
-pytest>=7.4.0
-pytest-mock>=3.11.1
+pytest>=8.3.0
+pytest-mock>=3.14.0
