@@ -9,16 +9,16 @@ This is the main Gradio application that provides an interactive interface for:
 The app uses LangChain/LangGraph with Claude Sonnet or GPT-4 for multi-step reasoning.
 """
 
+import json
+import logging
 import os
 import sys
-import logging
-import json
-import traceback
 import threading
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+import traceback
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # Check Python version before importing any other modules
 if sys.version_info < (3, 12):
@@ -32,24 +32,24 @@ if sys.version_info < (3, 12):
     print(f"  - Linux: sudo apt install python3.12")
     sys.exit(1)
 
-import gradio as gr
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from dotenv import load_dotenv
-import markdown
-import threading
 import re
 import time
+
+import gradio as gr
+import markdown
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from dotenv import load_dotenv
 
 # Import MLPatrol components (lazy-loaded below to avoid heavy imports at module import time)
 # The real `create_mlpatrol_agent` and related classes are imported inside AgentState._initialize_agent
 create_mlpatrol_agent = None
 MLPatrolAgent = None
 AgentResult = Any
-from src.security.cve_monitor import CVEMonitor
 from src.security.code_generator import build_cve_security_script
+from src.security.cve_monitor import CVEMonitor
 from src.utils.config_validator import validate_and_exit_on_error
 
 # Load environment variables
@@ -93,6 +93,40 @@ SUPPORTED_LIBRARIES = [
 
 MAX_FILE_SIZE_MB = 10
 ALLOWED_FILE_TYPES = [".csv"]
+
+# UI Constants
+MAX_ALERTS_DISPLAY = 200
+MAX_AGENT_ITERATIONS = 10
+LOGO_HEIGHT = 140
+CHAT_INTERFACE_HEIGHT = 400
+AGENT_STATUS_REFRESH_INTERVAL_SECONDS = 30
+
+# CVE Search Constants
+CVE_DAYS_MIN = 7
+CVE_DAYS_MAX = 365
+CVE_DAYS_DEFAULT = 90
+CVE_DAYS_STEP = 7
+CVE_DESCRIPTION_PREVIEW_LENGTH = 200
+
+# Dataset Analysis Constants
+DATASET_OUTLIER_ZSCORE_THRESHOLD = 3.0
+DATASET_POISONING_THRESHOLD = 0.05
+DATASET_HIGH_BIAS_THRESHOLD = 0.3
+DATASET_QUALITY_SCORE_MAX = 10.0
+DATASET_OUTLIER_PENALTY_FACTOR = 20
+DATASET_BIAS_PENALTY_FACTOR = 3
+DATASET_POISONING_PENALTY_FACTOR = 2
+DATASET_OUTLIER_CONFIDENCE_FACTOR = 10
+
+# Code Generation Constants
+CODE_PURPOSE_MAX_LENGTH = 200
+CODE_RESEARCH_SUMMARY_MAX_LENGTH = 400
+
+# CVE Severity Threshold
+CVE_HIGH_SEVERITY_THRESHOLD = 7.0
+
+# Progress Bar Progress Points
+PROGRESS_FORMATTING = 0.7
 
 # Theme colors
 THEME_COLORS = {
@@ -168,7 +202,7 @@ class AgentState:
                     model=model,
                     base_url=base_url,
                     verbose=True,
-                    max_iterations=10,
+                    max_iterations=MAX_AGENT_ITERATIONS,
                     max_execution_time=180,
                 )
                 cls._llm_info = {
@@ -201,7 +235,7 @@ class AgentState:
                     api_key=api_key,
                     model=model,
                     verbose=True,
-                    max_iterations=10,
+                    max_iterations=MAX_AGENT_ITERATIONS,
                     max_execution_time=180,
                 )
                 cls._llm_info = {
@@ -253,7 +287,7 @@ class AgentState:
         try:
             with cls._alerts_lock:
                 cls._alerts.insert(0, alert)
-                cls._alerts = cls._alerts[:200]
+                cls._alerts = cls._alerts[:MAX_ALERTS_DISPLAY]
             # persist
             try:
                 alerts_dir = Path("data")
@@ -282,7 +316,7 @@ class AgentState:
                 arr = json.loads(content)
                 if isinstance(arr, list):
                     with cls._alerts_lock:
-                        cls._alerts = arr[:200]
+                        cls._alerts = arr[:MAX_ALERTS_DISPLAY]
         except Exception:
             logger.debug("Failed to load alerts from disk", exc_info=True)
 
@@ -540,13 +574,16 @@ def create_quality_gauge(score: float) -> go.Figure:
             title={"text": "Dataset Quality Score"},
             domain={"x": [0, 1], "y": [0, 1]},
             gauge={
-                "axis": {"range": [0, 10]},
+                "axis": {"range": [0, DATASET_QUALITY_SCORE_MAX]},
                 "bar": {"color": color},
                 "steps": [
                     {"range": [0, 4], "color": "rgba(220, 38, 38, 0.2)"},
                     {"range": [4, 6], "color": "rgba(234, 88, 12, 0.2)"},
                     {"range": [6, 8], "color": "rgba(234, 179, 8, 0.2)"},
-                    {"range": [8, 10], "color": "rgba(34, 197, 94, 0.2)"},
+                    {
+                        "range": [8, DATASET_QUALITY_SCORE_MAX],
+                        "color": "rgba(34, 197, 94, 0.2)",
+                    },
                 ],
                 "threshold": {
                     "line": {"color": "black", "width": 4},
@@ -582,7 +619,8 @@ def format_reasoning_steps(agent_result: AgentResult) -> str:
     html_parts = ["<div class='reasoning-steps'>"]
 
     for step in agent_result.reasoning_steps:
-        html_parts.append(f"""
+        html_parts.append(
+            f"""
         <div class='reasoning-step'>
             <h4>Step {step.step_number}: {step.action}</h4>
             <p><strong>Input:</strong> <code>{json.dumps(step.action_input, indent=2)}</code></p>
@@ -590,7 +628,8 @@ def format_reasoning_steps(agent_result: AgentResult) -> str:
             <pre>{step.observation[:500]}{"..." if len(step.observation) > 500 else ""}</pre>
             <p><small>Duration: {step.duration_ms:.0f}ms</small></p>
         </div>
-        """)
+        """
+        )
 
     html_parts.append("</div>")
 
@@ -666,7 +705,7 @@ def format_cve_results(cves: List[Dict[str, Any]]) -> str:
                 <strong>{severity}</strong>
             </td>
             <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get("cvss_score", "N/A")}</td>
-            <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get("description", "No description")[:200]}...</td>
+            <td style='padding: 8px; border: 1px solid #ddd;'>{cve.get("description", "No description")[:CVE_DESCRIPTION_PREVIEW_LENGTH]}...</td>
         </tr>
         """
 
@@ -705,7 +744,7 @@ def format_dataset_analysis(analysis: Dict[str, Any]) -> str:
             </li>
             <li><strong>Poisoning Confidence:</strong> {analysis.get("poisoning_confidence", 0) * 100:.1f}%</li>
             <li><strong>Bias Score:</strong> {analysis.get("bias_score", 0):.2f}</li>
-            <li><strong>Quality Score:</strong> {analysis.get("quality_score", 0):.1f}/10</li>
+            <li><strong>Quality Score:</strong> {analysis.get("quality_score", 0):.1f}/{DATASET_QUALITY_SCORE_MAX}</li>
         </ul>
 
         <h3>Recommendations</h3>
@@ -759,7 +798,7 @@ def handle_cve_search(
         # Run agent
         result = agent.run(query)
 
-        progress(0.7, desc="Formatting results...")
+        progress(PROGRESS_FORMATTING, desc="Formatting results...")
 
         # Parse CVE results from reasoning steps
         cves = []
@@ -850,7 +889,7 @@ def handle_dataset_analysis(
         context = {"file_path": file.name, "dataset": True}
         result = agent.run(query, context=context)
 
-        progress(0.7, desc="Creating visualizations...")
+        progress(PROGRESS_FORMATTING, desc="Creating visualizations...")
 
         # Parse analysis results from reasoning steps
         analysis_data = None
@@ -964,7 +1003,10 @@ def run_background_coordinator_once() -> None:
             if res.get("cve_count", 0) > 0:
                 severity = (
                     "HIGH"
-                    if any(c.get("cvss_score", 0) >= 7.0 for c in res.get("cves", []))
+                    if any(
+                        c.get("cvss_score", 0) >= CVE_HIGH_SEVERITY_THRESHOLD
+                        for c in res.get("cves", [])
+                    )
                     else "MEDIUM"
                 )
 
@@ -1006,9 +1048,13 @@ def run_background_coordinator_once() -> None:
                                     "title": f"Research: {cve_id}",
                                     "severity": "LOW",
                                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                                    "details": research_summary[:400]
-                                    if research_summary
-                                    else "",
+                                    "details": (
+                                        research_summary[
+                                            :CODE_RESEARCH_SUMMARY_MAX_LENGTH
+                                        ]
+                                        if research_summary
+                                        else ""
+                                    ),
                                 }
                             )
                         except Exception as e:
@@ -1099,7 +1145,7 @@ def handle_code_generation(
         progress(0, desc="Initializing agent...")
 
         # Validate inputs
-        purpose = sanitize_input(purpose, max_length=200)
+        purpose = sanitize_input(purpose, max_length=CODE_PURPOSE_MAX_LENGTH)
         library = sanitize_input(library, max_length=50)
         cve_id = sanitize_input(cve_id, max_length=20) if cve_id else None
 
@@ -1122,7 +1168,7 @@ def handle_code_generation(
         # Run agent
         result = agent.run(query)
 
-        progress(0.7, desc="Formatting code...")
+        progress(PROGRESS_FORMATTING, desc="Formatting code...")
 
         # Parse generated code from reasoning steps
         generated_code = ""
@@ -1191,7 +1237,7 @@ def handle_chat(
         # Run agent
         result = agent.run(message)
 
-        progress(0.7, desc="Formatting response...")
+        progress(PROGRESS_FORMATTING, desc="Formatting response...")
 
         # Update history
         history.append([message, result.answer])
@@ -1212,31 +1258,17 @@ def handle_chat(
 
 
 # ============================================================================
-# Gradio Interface
+# Gradio Interface - Helper Functions
 # ============================================================================
 
 
-def create_interface() -> gr.Blocks:
-    """Create the main Gradio interface.
+def get_interface_css() -> str:
+    """Get the CSS styling for the Gradio interface.
 
     Returns:
-        Gradio Blocks interface
+        CSS string for the interface
     """
-
-    # Detect a compatible Gradio theme if available (keeps compatibility across versions)
-    theme_kw = {}
-    try:
-        if hasattr(gr, "themes") and hasattr(gr.themes, "Soft"):
-            theme_kw["theme"] = gr.themes.Soft()  # type: ignore[attr-defined]
-        elif hasattr(gr, "themes") and hasattr(gr.themes, "Default"):
-            theme_kw["theme"] = gr.themes.Default()  # type: ignore[attr-defined]
-    except Exception:
-        theme_kw = {}
-
-    with gr.Blocks(
-        title="MLPatrol - ML Security Agent",
-        **theme_kw,
-        css="""
+    return """
         .results-container {
             padding: 20px;
             background-color: #f9fafb;
@@ -1398,344 +1430,393 @@ def create_interface() -> gr.Blocks:
             border-top: 1px solid #e5e7eb;
             margin: 20px 0;
         }
-        """,
-    ) as interface:
-        # Header
-        if LOGO_PATH.exists():
-            gr.Image(
-                value=str(LOGO_PATH),
-                show_label=False,
-                height=140,
+        """
+
+
+def create_dashboard_tab() -> None:
+    """Create the Dashboard/Alerts tab."""
+    gr.Markdown(
+        """
+    ### Alerts Dashboard
+    This dashboard shows alerts discovered by the background CVE monitor.
+    """
+    )
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            dashboard_status = gr.Textbox(
+                label="Status",
                 interactive=False,
-                elem_id="mlpatrol-logo",
+                show_label=True,
             )
-        gr.Markdown(f"# {APP_TITLE}")
-        gr.Markdown(APP_DESCRIPTION)
+            dashboard_refresh = gr.Button("Refresh Dashboard")
+            dashboard_run_scan = gr.Button("Run CVE Scan Now", variant="primary")
 
-        # Display LLM Status
-        llm_info = AgentState.get_llm_info()
-        if llm_info and llm_info["status"] == "connected":
-            if llm_info["provider"] == "local":
-                status_icon = "🔵"  # Blue for local
-                status_color = "#3b82f6"  # Blue
-                privacy_note = " • 100% Private"
-            else:
-                status_icon = "🟢"  # Green for cloud
-                status_color = "#22c55e"  # Green
-                privacy_note = ""
+        with gr.Column(scale=2):
+            dashboard_html = gr.HTML(label="Alerts")
 
-            gr.Markdown(f"""
+    # Connect handlers
+    dashboard_refresh.click(
+        fn=get_dashboard_html, inputs=None, outputs=[dashboard_html]
+    )
+    dashboard_run_scan.click(fn=run_scan_now, inputs=None, outputs=[dashboard_status])
+
+
+def create_cve_monitoring_tab() -> None:
+    """Create the CVE Monitoring tab."""
+    gr.Markdown(
+        """
+    ### Search for vulnerabilities in ML libraries
+    Monitor CVEs from the National Vulnerability Database for your ML dependencies.
+    """
+    )
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            cve_library = gr.Dropdown(
+                choices=SUPPORTED_LIBRARIES,
+                value="numpy",
+                label="Library",
+                info="Select the ML library to check",
+            )
+            cve_days = gr.Slider(
+                minimum=CVE_DAYS_MIN,
+                maximum=CVE_DAYS_MAX,
+                value=CVE_DAYS_DEFAULT,
+                step=CVE_DAYS_STEP,
+                label="Days to look back",
+                info="Search for CVEs published in the last N days",
+            )
+            cve_search_btn = gr.Button("🔍 Search for CVEs", variant="primary")
+
+        with gr.Column(scale=2):
+            cve_status = gr.Textbox(label="Status", interactive=False, show_label=True)
+            cve_chart = gr.Plot(label="Severity Distribution")
+
+    cve_results = gr.HTML(label="Results")
+
+    with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
+        cve_reasoning = gr.HTML()
+
+    # Connect handler
+    cve_search_btn.click(
+        fn=handle_cve_search,
+        inputs=[cve_library, cve_days],
+        outputs=[cve_status, cve_results, cve_chart, cve_reasoning],
+    )
+
+
+def create_dataset_analysis_tab() -> None:
+    """Create the Dataset Analysis tab."""
+    gr.Markdown(
+        """
+    ### Analyze datasets for security issues
+    Detect poisoning attempts, statistical anomalies, bias, and quality issues.
+    """
+    )
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            dataset_file = gr.File(
+                label="Upload Dataset (CSV)",
+                file_types=[".csv"],
+                type="filepath",
+            )
+            dataset_analyze_btn = gr.Button("🔬 Analyze Dataset", variant="primary")
+
+            gr.Markdown(
+                f"""
+            **Requirements:**
+            - File format: CSV
+            - Max size: {MAX_FILE_SIZE_MB}MB
+            - Should contain numerical features and labels
+            """
+            )
+
+        with gr.Column(scale=2):
+            dataset_status = gr.Textbox(
+                label="Status", interactive=False, show_label=True
+            )
+            with gr.Row():
+                dataset_gauge = gr.Plot(label="Quality Score")
+                dataset_dist_chart = gr.Plot(label="Class Distribution")
+
+    dataset_results = gr.HTML(label="Analysis Results")
+
+    with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
+        dataset_reasoning = gr.HTML()
+
+    # Connect handler
+    dataset_analyze_btn.click(
+        fn=handle_dataset_analysis,
+        inputs=[dataset_file],
+        outputs=[
+            dataset_status,
+            dataset_results,
+            dataset_gauge,
+            dataset_dist_chart,
+            dataset_reasoning,
+        ],
+    )
+
+
+def create_code_generation_tab() -> None:
+    """Create the Code Generation tab."""
+    gr.Markdown(
+        """
+    ### Generate security validation code
+    Create Python scripts to check for vulnerabilities and validate your environment.
+    """
+    )
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            code_purpose = gr.Textbox(
+                label="Purpose",
+                placeholder="e.g., Check for CVE vulnerability, validate data integrity",
+                lines=2,
+                info="Describe what the security script should do",
+            )
+            code_library = gr.Textbox(
+                label="Target Library",
+                placeholder="e.g., numpy, pytorch, tensorflow",
+                info="The library to validate",
+            )
+            code_cve_id = gr.Textbox(
+                label="CVE ID (Optional)",
+                placeholder="e.g., CVE-2021-34141",
+                info="Specific CVE to check (optional)",
+            )
+            code_generate_btn = gr.Button("⚡ Generate Code", variant="primary")
+
+        with gr.Column(scale=2):
+            code_status = gr.Textbox(label="Status", interactive=False, show_label=True)
+            code_filename = gr.Textbox(label="Suggested Filename", interactive=False)
+
+    code_output = gr.Code(label="Generated Code", language="python", lines=20)
+
+    code_download_btn = gr.DownloadButton(label="⬇️ Download Script", visible=False)
+
+    with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
+        code_reasoning = gr.HTML()
+
+    # Connect handler
+    code_generate_btn.click(
+        fn=handle_code_generation,
+        inputs=[code_purpose, code_library, code_cve_id],
+        outputs=[code_status, code_output, code_filename, code_reasoning],
+    )
+
+
+def create_security_chat_tab() -> None:
+    """Create the Security Chat tab."""
+    gr.Markdown(
+        """
+    ### Ask general ML security questions
+    Get expert advice on ML security best practices, threats, and mitigations.
+    """
+    )
+
+    chat_interface = gr.Chatbot(
+        label="MLPatrol Security Assistant",
+        height=CHAT_INTERFACE_HEIGHT,
+        type="messages",
+    )
+
+    with gr.Row():
+        chat_input = gr.Textbox(
+            placeholder="Ask about ML security...",
+            show_label=False,
+            scale=4,
+        )
+        chat_submit = gr.Button("Send", variant="primary", scale=1)
+        chat_clear = gr.Button("Clear", scale=1)
+
+    chat_status = gr.Textbox(label="Status", interactive=False, show_label=True)
+
+    with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
+        chat_reasoning = gr.HTML()
+
+    # Connect handlers
+    chat_submit.click(
+        fn=handle_chat,
+        inputs=[chat_input, chat_interface],
+        outputs=[chat_interface, chat_reasoning, chat_status],
+    ).then(lambda: "", outputs=[chat_input])
+
+    chat_input.submit(
+        fn=handle_chat,
+        inputs=[chat_input, chat_interface],
+        outputs=[chat_interface, chat_reasoning, chat_status],
+    ).then(lambda: "", outputs=[chat_input])
+
+    chat_clear.click(
+        lambda: ([], "", ""),
+        outputs=[chat_interface, chat_reasoning, chat_status],
+    ).then(
+        lambda: (
+            AgentState.get_agent().clear_history() if AgentState.get_agent() else None
+        )
+    )
+
+
+def create_header() -> None:
+    """Create the interface header with logo and status indicators."""
+    # Header
+    if LOGO_PATH.exists():
+        gr.Image(
+            value=str(LOGO_PATH),
+            show_label=False,
+            height=LOGO_HEIGHT,
+            interactive=False,
+            elem_id="mlpatrol-logo",
+        )
+    gr.Markdown(f"# {APP_TITLE}")
+    gr.Markdown(APP_DESCRIPTION)
+
+    # Display LLM Status
+    llm_info = AgentState.get_llm_info()
+    if llm_info and llm_info["status"] == "connected":
+        if llm_info["provider"] == "local":
+            status_icon = "🔵"  # Blue for local
+            status_color = "#3b82f6"  # Blue
+            privacy_note = " • 100% Private"
+        else:
+            status_icon = "🟢"  # Green for cloud
+            status_color = "#22c55e"  # Green
+            privacy_note = ""
+
+        gr.Markdown(
+            f"""
 <div style="background-color: #f0f9ff; border-left: 4px solid {status_color}; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>{status_icon} LLM Status:</strong> Using <code>{llm_info["display_name"]}</code>{privacy_note}
 </div>
-            """)
-        elif llm_info and llm_info["status"] == "error":
-            gr.Markdown("""
+        """
+        )
+    elif llm_info and llm_info["status"] == "error":
+        gr.Markdown(
+            """
 <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>🔴 LLM Status:</strong> Not Connected - Check configuration
 </div>
-            """)
+        """
+        )
 
-        # Display Web Search Status
-        web_search_info = AgentState.get_web_search_info()
-        if web_search_info["status"] == "active":
-            # Active providers - show in green/blue
-            providers_text = " + ".join(
-                [f"<code>{p}</code>" for p in web_search_info["providers"]]
-            )
-            gr.Markdown(f"""
+    # Display Web Search Status
+    web_search_info = AgentState.get_web_search_info()
+    if web_search_info["status"] == "active":
+        # Active providers - show in green/blue
+        providers_text = " + ".join(
+            [f"<code>{p}</code>" for p in web_search_info["providers"]]
+        )
+        gr.Markdown(
+            f"""
 <div style="background-color: #f0fdf4; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>🔍 Web Search:</strong> {providers_text} • Privacy-focused
 </div>
-            """)
-        elif web_search_info["status"] == "not_configured":
-            # Enabled but no API keys
-            gr.Markdown("""
+        """
+        )
+    elif web_search_info["status"] == "not_configured":
+        # Enabled but no API keys
+        gr.Markdown(
+            """
 <div style="background-color: #fffbeb; border-left: 4px solid #eab308; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>⚠️ Web Search:</strong> Not configured - Add API keys to .env
 </div>
-            """)
-        elif web_search_info["status"] == "disabled":
-            # Disabled
-            gr.Markdown("""
+        """
+        )
+    elif web_search_info["status"] == "disabled":
+        # Disabled
+        gr.Markdown(
+            """
 <div style="background-color: #f3f4f6; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 10px 0; border-radius: 4px;">
     <strong>⚫ Web Search:</strong> Disabled
 </div>
-            """)
+        """
+        )
 
-        # Agent status block (refreshable)
-        agent_status_md = gr.Markdown(get_agent_status_html())
-        agent_status_refresh = gr.Button("Refresh Agent Status")
-        agent_status_refresh.click(
+    # Agent status block (refreshable)
+    agent_status_md = gr.Markdown(get_agent_status_html())
+    agent_status_refresh = gr.Button("Refresh Agent Status")
+    agent_status_refresh.click(
+        fn=get_agent_status_html, inputs=None, outputs=[agent_status_md]
+    )
+    # Auto-refresh agent status every 30 seconds using gr.Timer if available
+    try:
+        status_timer = gr.Timer(
+            value=AGENT_STATUS_REFRESH_INTERVAL_SECONDS, active=True, render=True
+        )
+        status_timer.tick(
             fn=get_agent_status_html, inputs=None, outputs=[agent_status_md]
         )
-        # Auto-refresh agent status every 30 seconds using gr.Timer if available
-        try:
-            status_timer = gr.Timer(value=30, active=True, render=True)
-            status_timer.tick(
-                fn=get_agent_status_html, inputs=None, outputs=[agent_status_md]
-            )
-        except Exception:
-            logger.debug(
-                "gr.Timer not available; skipping auto-refresh for agent status"
-            )
+    except Exception:
+        logger.debug("gr.Timer not available; skipping auto-refresh for agent status")
+
+
+def create_footer() -> None:
+    """Create the interface footer."""
+    gr.Markdown(
+        """
+    ---
+    ### About MLPatrol
+
+    MLPatrol is an AI-powered security agent built for the MCP 1st Birthday Hackathon.
+    It helps secure ML systems through intelligent CVE monitoring, dataset analysis, and code generation.
+
+    **Powered by:** LangChain, Claude Sonnet 4, Gradio 6
+
+    **⚠️ Security Notice:** Always review generated code before execution. This tool provides
+    security analysis but should be used alongside manual security reviews and testing.
+    """
+    )
+
+
+# ============================================================================
+# Gradio Interface - Main
+# ============================================================================
+
+
+def create_interface() -> gr.Blocks:
+    """Create the main Gradio interface.
+
+    Returns:
+        Gradio Blocks interface
+    """
+    # Detect a compatible Gradio theme if available (keeps compatibility across versions)
+    theme_kw = {}
+    try:
+        if hasattr(gr, "themes") and hasattr(gr.themes, "Soft"):
+            theme_kw["theme"] = gr.themes.Soft()  # type: ignore[attr-defined]
+        elif hasattr(gr, "themes") and hasattr(gr.themes, "Default"):
+            theme_kw["theme"] = gr.themes.Default()  # type: ignore[attr-defined]
+    except Exception:
+        theme_kw = {}
+
+    with gr.Blocks(
+        title="MLPatrol - ML Security Agent",
+        **theme_kw,
+        css=get_interface_css(),
+    ) as interface:
+        create_header()
 
         # Main tabs
-        with gr.Tabs() as tabs:
-            # ================================================================
-            # Tab 0: Dashboard / Alerts
-            # ================================================================
+        with gr.Tabs():
             with gr.Tab("⚠️ Dashboard"):
-                gr.Markdown("""
-                ### Alerts Dashboard
-                This dashboard shows alerts discovered by the background CVE monitor.
-                """)
+                create_dashboard_tab()
 
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        dashboard_status = gr.Textbox(
-                            label="Status",
-                            interactive=False,
-                            show_label=True,
-                        )
-                        dashboard_refresh = gr.Button("Refresh Dashboard")
-                        dashboard_run_scan = gr.Button(
-                            "Run CVE Scan Now", variant="primary"
-                        )
-
-                    with gr.Column(scale=2):
-                        dashboard_html = gr.HTML(label="Alerts")
-
-                # Connect handlers
-                dashboard_refresh.click(
-                    fn=get_dashboard_html, inputs=None, outputs=[dashboard_html]
-                )
-                dashboard_run_scan.click(
-                    fn=run_scan_now, inputs=None, outputs=[dashboard_status]
-                )
-            # ================================================================
-            # Tab 1: CVE Monitoring
-            # ================================================================
             with gr.Tab("🔍 CVE Monitoring"):
-                gr.Markdown("""
-                ### Search for vulnerabilities in ML libraries
-                Monitor CVEs from the National Vulnerability Database for your ML dependencies.
-                """)
+                create_cve_monitoring_tab()
 
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        cve_library = gr.Dropdown(
-                            choices=SUPPORTED_LIBRARIES,
-                            value="numpy",
-                            label="Library",
-                            info="Select the ML library to check",
-                        )
-                        cve_days = gr.Slider(
-                            minimum=7,
-                            maximum=365,
-                            value=90,
-                            step=7,
-                            label="Days to look back",
-                            info="Search for CVEs published in the last N days",
-                        )
-                        cve_search_btn = gr.Button(
-                            "🔍 Search for CVEs", variant="primary"
-                        )
-
-                    with gr.Column(scale=2):
-                        cve_status = gr.Textbox(
-                            label="Status", interactive=False, show_label=True
-                        )
-                        cve_chart = gr.Plot(label="Severity Distribution")
-
-                cve_results = gr.HTML(label="Results")
-
-                with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
-                    cve_reasoning = gr.HTML()
-
-                # Connect handler
-                cve_search_btn.click(
-                    fn=handle_cve_search,
-                    inputs=[cve_library, cve_days],
-                    outputs=[cve_status, cve_results, cve_chart, cve_reasoning],
-                )
-
-            # ================================================================
-            # Tab 2: Dataset Analysis
-            # ================================================================
             with gr.Tab("📊 Dataset Analysis"):
-                gr.Markdown("""
-                ### Analyze datasets for security issues
-                Detect poisoning attempts, statistical anomalies, bias, and quality issues.
-                """)
+                create_dataset_analysis_tab()
 
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        dataset_file = gr.File(
-                            label="Upload Dataset (CSV)",
-                            file_types=[".csv"],
-                            type="filepath",
-                        )
-                        dataset_analyze_btn = gr.Button(
-                            "🔬 Analyze Dataset", variant="primary"
-                        )
-
-                        gr.Markdown(f"""
-                        **Requirements:**
-                        - File format: CSV
-                        - Max size: {MAX_FILE_SIZE_MB}MB
-                        - Should contain numerical features and labels
-                        """)
-
-                    with gr.Column(scale=2):
-                        dataset_status = gr.Textbox(
-                            label="Status", interactive=False, show_label=True
-                        )
-                        with gr.Row():
-                            dataset_gauge = gr.Plot(label="Quality Score")
-                            dataset_dist_chart = gr.Plot(label="Class Distribution")
-
-                dataset_results = gr.HTML(label="Analysis Results")
-
-                with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
-                    dataset_reasoning = gr.HTML()
-
-                # Connect handler
-                dataset_analyze_btn.click(
-                    fn=handle_dataset_analysis,
-                    inputs=[dataset_file],
-                    outputs=[
-                        dataset_status,
-                        dataset_results,
-                        dataset_gauge,
-                        dataset_dist_chart,
-                        dataset_reasoning,
-                    ],
-                )
-
-            # ================================================================
-            # Tab 3: Code Generation
-            # ================================================================
             with gr.Tab("💻 Code Generation"):
-                gr.Markdown("""
-                ### Generate security validation code
-                Create Python scripts to check for vulnerabilities and validate your environment.
-                """)
+                create_code_generation_tab()
 
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        code_purpose = gr.Textbox(
-                            label="Purpose",
-                            placeholder="e.g., Check for CVE vulnerability, validate data integrity",
-                            lines=2,
-                            info="Describe what the security script should do",
-                        )
-                        code_library = gr.Textbox(
-                            label="Target Library",
-                            placeholder="e.g., numpy, pytorch, tensorflow",
-                            info="The library to validate",
-                        )
-                        code_cve_id = gr.Textbox(
-                            label="CVE ID (Optional)",
-                            placeholder="e.g., CVE-2021-34141",
-                            info="Specific CVE to check (optional)",
-                        )
-                        code_generate_btn = gr.Button(
-                            "⚡ Generate Code", variant="primary"
-                        )
-
-                    with gr.Column(scale=2):
-                        code_status = gr.Textbox(
-                            label="Status", interactive=False, show_label=True
-                        )
-                        code_filename = gr.Textbox(
-                            label="Suggested Filename", interactive=False
-                        )
-
-                code_output = gr.Code(
-                    label="Generated Code", language="python", lines=20
-                )
-
-                code_download_btn = gr.DownloadButton(
-                    label="⬇️ Download Script", visible=False
-                )
-
-                with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
-                    code_reasoning = gr.HTML()
-
-                # Connect handler
-                code_generate_btn.click(
-                    fn=handle_code_generation,
-                    inputs=[code_purpose, code_library, code_cve_id],
-                    outputs=[code_status, code_output, code_filename, code_reasoning],
-                )
-
-            # ================================================================
-            # Tab 4: Security Chat
-            # ================================================================
             with gr.Tab("💬 Security Chat"):
-                gr.Markdown("""
-                ### Ask general ML security questions
-                Get expert advice on ML security best practices, threats, and mitigations.
-                """)
+                create_security_chat_tab()
 
-                chat_interface = gr.Chatbot(
-                    label="MLPatrol Security Assistant",
-                    height=400,
-                    type="messages",
-                )
-
-                with gr.Row():
-                    chat_input = gr.Textbox(
-                        placeholder="Ask about ML security...",
-                        show_label=False,
-                        scale=4,
-                    )
-                    chat_submit = gr.Button("Send", variant="primary", scale=1)
-                    chat_clear = gr.Button("Clear", scale=1)
-
-                chat_status = gr.Textbox(
-                    label="Status", interactive=False, show_label=True
-                )
-
-                with gr.Accordion("🧠 Agent Reasoning Steps", open=False):
-                    chat_reasoning = gr.HTML()
-
-                # Connect handlers
-                chat_submit.click(
-                    fn=handle_chat,
-                    inputs=[chat_input, chat_interface],
-                    outputs=[chat_interface, chat_reasoning, chat_status],
-                ).then(lambda: "", outputs=[chat_input])
-
-                chat_input.submit(
-                    fn=handle_chat,
-                    inputs=[chat_input, chat_interface],
-                    outputs=[chat_interface, chat_reasoning, chat_status],
-                ).then(lambda: "", outputs=[chat_input])
-
-                chat_clear.click(
-                    lambda: ([], "", ""),
-                    outputs=[chat_interface, chat_reasoning, chat_status],
-                ).then(
-                    lambda: AgentState.get_agent().clear_history()
-                    if AgentState.get_agent()
-                    else None
-                )
-
-        # Footer
-        gr.Markdown("""
-        ---
-        ### About MLPatrol
-
-        MLPatrol is an AI-powered security agent built for the MCP 1st Birthday Hackathon.
-        It helps secure ML systems through intelligent CVE monitoring, dataset analysis, and code generation.
-
-        **Powered by:** LangChain, Claude Sonnet 4, Gradio 6
-
-        **⚠️ Security Notice:** Always review generated code before execution. This tool provides
-        security analysis but should be used alongside manual security reviews and testing.
-        """)
+        create_footer()
 
     return interface
 
