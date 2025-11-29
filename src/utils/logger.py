@@ -18,6 +18,8 @@ def configure_logging(level: Optional[str] = None) -> None:
 
     log_level = level or os.getenv("MLPATROL_LOG_LEVEL", "INFO")
     logging.basicConfig(level=log_level.upper(), format=DEFAULT_FORMAT)
+    # Explicitly set root logger level since basicConfig may not work if already configured
+    logging.root.setLevel(log_level.upper())
     _configured = True
 
 

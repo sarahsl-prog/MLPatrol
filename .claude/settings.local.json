@@ -12,7 +12,9 @@
       "Bash(py --list:*)",
       "Bash(pip show:*)",
       "Bash(./mlvenv/Scripts/python.exe:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(pytest:*)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []

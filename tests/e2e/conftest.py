@@ -8,11 +8,13 @@ from pathlib import Path
 @pytest.fixture
 def sample_dataset_csv(tmp_path):
     """Create a sample CSV dataset for testing."""
+    # Create dataset with more data points for stable z-score calculation
+    # and an extreme outlier that will definitely exceed z-score > 3.0
     df = pd.DataFrame(
         {
-            "feature1": [1.0, 2.0, 3.0, 4.0, 5.0, 100.0],  # 100.0 is an outlier
-            "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-            "label": [0, 0, 0, 1, 1, 1],
+            "feature1": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 1000.0],  # 1000.0 is extreme outlier
+            "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1],
+            "label": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
         }
     )
     path = tmp_path / "test_dataset.csv"

@@ -123,7 +123,20 @@ class TestGetSettings:
     """Tests for get_settings function."""
 
     def setup_method(self):
-        """Clear settings cache before each test."""
+        """Clear settings cache and environment variables before each test."""
+        # Clear environment variables first
+        env_vars = [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "NVD_API_KEY",
+            "USE_LOCAL_LLM",
+            "LOCAL_LLM_MODEL",
+            "LOCAL_LLM_URL",
+            "MLPATROL_LOG_LEVEL",
+        ]
+        for var in env_vars:
+            os.environ.pop(var, None)
+        # Then clear cache
         refresh_settings()
 
     def teardown_method(self):
@@ -218,8 +231,11 @@ class TestGetSettings:
 
     def test_get_settings_cached(self):
         """Test get_settings returns cached value on second call."""
+        # Clear any existing cache first
+        refresh_settings()
+
         os.environ["ANTHROPIC_API_KEY"] = "first-key"
-        settings1 = refresh_settings()
+        settings1 = get_settings()
 
         # Change environment but don't refresh
         os.environ["ANTHROPIC_API_KEY"] = "second-key"

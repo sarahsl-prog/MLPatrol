@@ -35,11 +35,11 @@ class TestDatasetAnalysisWorkflow:
         assert "quality_score" in result
 
         # Verify correct data was analyzed
-        assert result["num_rows"] == 6
+        assert result["num_rows"] == 11
         assert result["num_features"] == 3
 
         # Verify outlier detection ran
-        assert result["outlier_count"] >= 1  # Should detect the 100.0 outlier
+        assert result["outlier_count"] >= 1  # Should detect the 1000.0 extreme outlier
 
     def test_workflow_with_biased_dataset(self, tmp_path):
         """Test workflow detects bias in imbalanced dataset."""
@@ -63,12 +63,12 @@ class TestDatasetAnalysisWorkflow:
 
     def test_workflow_with_outliers(self, tmp_path):
         """Test workflow detects outliers."""
-        # Create dataset with obvious outliers
+        # Create dataset with more data points and extreme outliers to ensure z-score > 3.0
         df = pd.DataFrame(
             {
-                "feature1": [1, 2, 3, 4, 5, 1000],  # 1000 is outlier
-                "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 999.9],  # 999.9 is outlier
-                "label": [0, 0, 1, 1, 0, 1],
+                "feature1": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10000],  # 10000 is extreme outlier
+                "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 9999.9],  # 9999.9 is extreme outlier
+                "label": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
             }
         )
         path = tmp_path / "outliers.csv"
