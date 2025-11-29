@@ -748,11 +748,11 @@ def analyze_dataset_impl(
 
         # Validate dataset
         num_rows, num_features = df.shape
-        if num_rows < 10:
+        if num_rows < 2:
             return json.dumps(
                 {
                     "status": "error",
-                    "message": f"Dataset too small for analysis. Need at least 10 rows, got {num_rows}",
+                    "message": f"Dataset too small for analysis. Need at least 2 rows, got {num_rows}",
                 }
             )
         if num_features < 1:

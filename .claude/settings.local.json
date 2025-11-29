@@ -11,7 +11,8 @@
       "Bash(py -3.12:*)",
       "Bash(py --list:*)",
       "Bash(pip show:*)",
-      "Bash(./mlvenv/Scripts/python.exe:*)"
+      "Bash(./mlvenv/Scripts/python.exe:*)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []
