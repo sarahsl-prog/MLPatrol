@@ -136,7 +136,7 @@ Unlike simple search tools, MLPatrol actively *thinks* through problems:
 ┌─────────────┐
 │   User      │
 │  Interface  │
-│  (Gradio 6) │
+│ (Gradio 5+) │
 └──────┬──────┘
        │
        ▼
@@ -333,7 +333,7 @@ MLPatrol is designed for extensibility beyond the hackathon:
 - 🚀 **Live Demo:** [HuggingFace Space](HUGGINGFACE_SPACE_LINK)
 
 **Built with:**
-- ✅ Gradio 6 for interface
+- ✅ Gradio 5+ for interface
 - ✅ MCP tools for external integrations
 - ✅ Multi-step agent reasoning
 - ✅ Original work created Nov 14-30, 2025
