@@ -408,9 +408,9 @@ def _tavily_search(query: str, max_results: int = 5) -> str:
 
         # Use Tavily via LangChain integration if available
         try:
-            from langchain_community.tools.tavily_search import TavilySearchResults
+            from langchain_tavily import TavilySearch
 
-            tool = TavilySearchResults(
+            tool = TavilySearch(
                 max_results=max_results,
                 search_depth=search_depth,
                 include_answer=True,

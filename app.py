@@ -1203,13 +1203,13 @@ def handle_code_generation(
 
 
 def handle_chat(
-    message: str, history: List[List[str]], progress=gr.Progress()
-) -> Tuple[List[List[str]], str, str]:
+    message: str, history: List[Dict[str, str]], progress=gr.Progress()
+) -> Tuple[List[Dict[str, str]], str, str]:
     """Handle general security chat.
 
     Args:
         message: User's message
-        history: Chat history
+        history: Chat history (list of message dicts with 'role' and 'content')
         progress: Gradio progress tracker
 
     Returns:
@@ -1229,7 +1229,8 @@ def handle_chat(
         agent = AgentState.get_agent()
         if agent is None:
             error = AgentState.get_error() or "Agent not initialized"
-            history.append([message, f"Error: {error}"])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": f"Error: {error}"})
             return history, "", f"❌ {error}"
 
         progress(0.3, desc="Thinking...")
@@ -1239,8 +1240,9 @@ def handle_chat(
 
         progress(PROGRESS_FORMATTING, desc="Formatting response...")
 
-        # Update history
-        history.append([message, result.answer])
+        # Update history with messages format
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": result.answer})
 
         reasoning_html = format_reasoning_steps(result)
 
@@ -1253,7 +1255,8 @@ def handle_chat(
     except Exception as e:
         logger.error(f"Chat failed: {e}", exc_info=True)
         error_msg = f"❌ Error: {str(e)}"
-        history.append([message, f"I encountered an error: {str(e)}"])
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": f"I encountered an error: {str(e)}"})
         return history, "", error_msg
 
 
