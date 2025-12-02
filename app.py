@@ -967,9 +967,16 @@ def run_background_coordinator_once() -> None:
     This function is safe to call from a background thread or on-demand.
     It writes generated check scripts to `generated_checks/` and adds alerts
     to `AgentState` for UI consumption.
+
+    **NEW (Phase 3)**: Integrates with WorkflowOrchestrator for automated
+    script generation and review workflow.
     """
     try:
         logger.info("Background coordinator running a single scan pass...")
+
+        # Initialize workflow orchestrator
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+        orchestrator = create_workflow_orchestrator(auto_review=True)
 
         # determine since date (use file to persist last run)
         last_file = Path("data/cve_cache/last_check.txt")
@@ -1056,38 +1063,56 @@ def run_background_coordinator_once() -> None:
                         except Exception as e:
                             logger.debug(f"Threat research failed for {cve_id}: {e}")
 
-                    # Generate a security check script for the CVE
+                    # Generate a security check script for the CVE using workflow orchestrator
                     try:
                         affected_versions = cve.get("affected_versions") or []
-                        script = build_cve_security_script(
-                            purpose=f"Check for {cve_id}",
-                            library=lib,
+                        description = cve.get("description", "")
+
+                        # Use workflow orchestrator to handle CVE detection
+                        # This triggers: script generation → LLM review → ready for user approval
+                        script_id = orchestrator.handle_cve_detected(
                             cve_id=cve_id,
+                            library=lib,
+                            severity=severity,
+                            description=description,
                             affected_versions=affected_versions,
-                        )
-                        out_dir = Path("generated_checks")
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        # sanitize lib and cve_id for safe filenames
-                        try:
-                            safe_lib = re.sub(r"[^A-Za-z0-9_.-]", "_", str(lib))
-                            safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", str(cve_id))
-                        except Exception:
-                            safe_lib = str(lib).replace("/", "_")
-                            safe_id = str(cve_id).replace("/", "_")
-                        filename = out_dir / f"check_{safe_lib}_{safe_id}.py"
-                        filename.write_text(script)
-                        # attach script path to alert
-                        AgentState.add_alert(
-                            {
-                                "title": f"Generated check for {cve_id}",
-                                "severity": "LOW",
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                                "details": f"Script written to {str(filename)}",
-                                "script_path": str(filename),
+                            metadata={
+                                "cvss_score": cve.get("cvss_score"),
+                                "published_date": cve.get("published_date"),
+                                "references": cve.get("references", [])
                             }
                         )
+
+                        # Get script record to find path
+                        script_record = orchestrator.get_script_status(script_id)
+                        if script_record and script_record.script_path:
+                            # Add alert for generated script
+                            AgentState.add_alert(
+                                {
+                                    "title": f"Generated check for {cve_id}",
+                                    "severity": "LOW",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "details": f"Script written to {script_record.script_path}. Status: {script_record.display_status}",
+                                    "script_path": script_record.script_path,
+                                    "script_id": script_id,
+                                    "workflow_status": str(script_record.status)
+                                }
+                            )
+
+                            # If review completed, add review alert
+                            if script_record.review_result:
+                                review = script_record.review_result
+                                AgentState.add_alert(
+                                    {
+                                        "title": f"Review: {cve_id} ({review.risk_level})",
+                                        "severity": str(review.risk_level).upper(),
+                                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                                        "details": f"{review.review_summary}\n\nConfidence: {review.confidence_score:.0%}\nSafe to run: {review.safe_to_run}",
+                                        "script_id": script_id
+                                    }
+                                )
                     except Exception as e:
-                        logger.debug(f"Failed to generate script for {cve_id}: {e}")
+                        logger.debug(f"Failed to process {cve_id} with orchestrator: {e}")
 
         # persist last run timestamp
         try:
