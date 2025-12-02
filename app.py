@@ -1459,6 +1459,322 @@ def get_interface_css() -> str:
         """
 
 
+# ============================================================================
+# Script Manager Tab Handlers (Phase 5)
+# ============================================================================
+
+def load_pending_scripts() -> tuple:
+    """Load scripts awaiting user review."""
+    try:
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+
+        orchestrator = create_workflow_orchestrator()
+        reviewed_scripts = orchestrator.get_reviewed_scripts()
+
+        if not reviewed_scripts:
+            return "No scripts awaiting review", "", "", "", "", ""
+
+        # Build script list HTML
+        script_list_html = "<div style='padding: 10px;'>"
+        for script in reviewed_scripts:
+            risk_color = script.review_result.risk_level.color if script.review_result else "#6b7280"
+            confidence = script.review_result.confidence_score if script.review_result else 0
+
+            script_list_html += f"""
+            <div style='border: 1px solid {risk_color}; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: white;'>
+                <div style='display: flex; justify-content: space-between; align-items: center;'>
+                    <div>
+                        <h3 style='margin: 0; color: #111827;'>{script.cve_id}</h3>
+                        <p style='margin: 5px 0; color: #6b7280;'>{script.library} | {script.severity}</p>
+                    </div>
+                    <div style='text-align: right;'>
+                        <span style='background: {risk_color}; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>
+                            {script.review_result.risk_level if script.review_result else 'N/A'}
+                        </span>
+                        <p style='margin: 5px 0; color: #6b7280;'>Confidence: {confidence:.0%}</p>
+                    </div>
+                </div>
+                <p style='margin: 10px 0 0 0; color: #374151;'>{script.display_status}</p>
+                <button onclick='selectScript("{script.id}")' style='margin-top: 10px; padding: 6px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;'>View Details</button>
+            </div>
+            """
+
+        script_list_html += "</div>"
+
+        # Select first script by default
+        if reviewed_scripts:
+            first_script = reviewed_scripts[0]
+            return load_script_details(first_script.id)
+
+        return script_list_html, "", "", "", "", ""
+
+    except Exception as e:
+        logger.error(f"Failed to load pending scripts: {e}", exc_info=True)
+        return f"Error loading scripts: {str(e)}", "", "", "", "", ""
+
+
+def load_script_details(script_id: str) -> tuple:
+    """Load details for a specific script."""
+    try:
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+
+        orchestrator = create_workflow_orchestrator()
+        script = orchestrator.get_script_status(script_id)
+
+        if not script:
+            return "Script not found", "", "", "", "", ""
+
+        # CVE Information
+        cve_info_html = f"""
+        <div style='background: white; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;'>
+            <h3 style='margin-top: 0; color: #111827;'>CVE Information</h3>
+            <table style='width: 100%; border-collapse: collapse;'>
+                <tr>
+                    <td style='padding: 8px; font-weight: bold; color: #374151; width: 150px;'>CVE ID:</td>
+                    <td style='padding: 8px; color: #111827;'>{script.cve_id}</td>
+                </tr>
+                <tr style='background: #f9fafb;'>
+                    <td style='padding: 8px; font-weight: bold; color: #374151;'>Library:</td>
+                    <td style='padding: 8px; color: #111827;'>{script.library}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; font-weight: bold; color: #374151;'>Severity:</td>
+                    <td style='padding: 8px; color: #111827;'>{script.severity}</td>
+                </tr>
+                <tr style='background: #f9fafb;'>
+                    <td style='padding: 8px; font-weight: bold; color: #374151;'>Status:</td>
+                    <td style='padding: 8px; color: #111827;'>{script.display_status}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; font-weight: bold; color: #374151;'>Created:</td>
+                    <td style='padding: 8px; color: #111827;'>{script.created_at.strftime("%Y-%m-%d %H:%M:%S")}</td>
+                </tr>
+            </table>
+        </div>
+        """
+
+        # Script Content
+        script_content = ""
+        if script.script_path and os.path.exists(script.script_path):
+            with open(script.script_path, 'r') as f:
+                script_content = f.read()
+
+        # Review Results
+        review_html = ""
+        if script.review_result:
+            review = script.review_result
+            risk_color = review.risk_level.color
+
+            issues_html = "<ul style='margin: 10px 0; padding-left: 20px;'>"
+            for issue in review.issues_found[:5]:  # Show first 5
+                issues_html += f"<li style='color: #dc2626; margin: 5px 0;'>{issue}</li>"
+            if len(review.issues_found) > 5:
+                issues_html += f"<li style='color: #6b7280;'>... and {len(review.issues_found) - 5} more</li>"
+            if not review.issues_found:
+                issues_html += "<li style='color: #059669;'>No issues found</li>"
+            issues_html += "</ul>"
+
+            recommendations_html = "<ul style='margin: 10px 0; padding-left: 20px;'>"
+            for rec in review.recommendations[:5]:
+                recommendations_html += f"<li style='color: #2563eb; margin: 5px 0;'>{rec}</li>"
+            if not review.recommendations:
+                recommendations_html += "<li style='color: #6b7280;'>No recommendations</li>"
+            recommendations_html += "</ul>"
+
+            safe_icon = "✅" if review.safe_to_run else "❌"
+
+            review_html = f"""
+            <div style='background: white; padding: 20px; border-radius: 8px; border: 2px solid {risk_color};'>
+                <h3 style='margin-top: 0; color: #111827;'>LLM Review Results</h3>
+
+                <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;'>
+                    <div style='background: {risk_color}20; padding: 15px; border-radius: 6px;'>
+                        <div style='font-weight: bold; color: #374151; margin-bottom: 5px;'>Risk Level</div>
+                        <div style='font-size: 24px; font-weight: bold; color: {risk_color};'>{review.risk_level}</div>
+                    </div>
+                    <div style='background: #3b82f620; padding: 15px; border-radius: 6px;'>
+                        <div style='font-weight: bold; color: #374151; margin-bottom: 5px;'>Confidence</div>
+                        <div style='font-size: 24px; font-weight: bold; color: #3b82f6;'>{review.confidence_score:.0%}</div>
+                    </div>
+                </div>
+
+                <div style='margin-bottom: 15px;'>
+                    <div style='font-weight: bold; color: #374151; margin-bottom: 5px;'>Safe to Run:</div>
+                    <div style='font-size: 20px;'>{safe_icon} {review.safe_to_run}</div>
+                </div>
+
+                <div style='margin-bottom: 15px;'>
+                    <div style='font-weight: bold; color: #374151; margin-bottom: 5px;'>Summary:</div>
+                    <div style='color: #111827; line-height: 1.6;'>{review.review_summary}</div>
+                </div>
+
+                <details style='margin-bottom: 15px;'>
+                    <summary style='font-weight: bold; color: #374151; cursor: pointer; padding: 5px 0;'>Issues Found ({len(review.issues_found)})</summary>
+                    {issues_html}
+                </details>
+
+                <details style='margin-bottom: 15px;'>
+                    <summary style='font-weight: bold; color: #374151; cursor: pointer; padding: 5px 0;'>Recommendations ({len(review.recommendations)})</summary>
+                    {recommendations_html}
+                </details>
+
+                <details>
+                    <summary style='font-weight: bold; color: #374151; cursor: pointer; padding: 5px 0;'>Detailed Analysis</summary>
+                    <div style='margin-top: 10px; color: #374151; line-height: 1.6; white-space: pre-wrap;'>{review.detailed_analysis}</div>
+                </details>
+
+                <div style='margin-top: 15px; padding: 10px; background: #f3f4f6; border-radius: 4px; color: #6b7280; font-size: 12px;'>
+                    Reviewed by: {review.reviewer_model} | {review.reviewed_at.strftime("%Y-%m-%d %H:%M:%S")}
+                </div>
+            </div>
+            """
+        else:
+            review_html = "<div style='padding: 20px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b;'>No review available</div>"
+
+        # Execution Output (if available)
+        execution_html = ""
+        if script.execution_result:
+            result = script.execution_result
+            status_color = "#059669" if result.success else "#dc2626"
+            status_text = "✅ SUCCESS" if result.success else "❌ FAILED"
+
+            execution_html = f"""
+            <div style='background: white; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;'>
+                <h3 style='margin-top: 0; color: #111827;'>Execution Results</h3>
+                <div style='margin-bottom: 15px;'>
+                    <span style='font-size: 20px; font-weight: bold; color: {status_color};'>{status_text}</span>
+                    <span style='margin-left: 20px; color: #6b7280;'>Exit Code: {result.exit_code}</span>
+                    <span style='margin-left: 20px; color: #6b7280;'>Duration: {result.duration_seconds:.2f}s</span>
+                </div>
+
+                <details open>
+                    <summary style='font-weight: bold; color: #374151; cursor: pointer; padding: 5px 0;'>Standard Output</summary>
+                    <pre style='background: #1f2937; color: #f9fafb; padding: 15px; border-radius: 6px; overflow-x: auto; margin-top: 10px;'>{result.stdout if result.stdout else '(no output)'}</pre>
+                </details>
+
+                {f"<details><summary style='font-weight: bold; color: #374151; cursor: pointer; padding: 5px 0;'>Standard Error</summary><pre style='background: #1f2937; color: #fca5a5; padding: 15px; border-radius: 6px; overflow-x: auto; margin-top: 10px;'>{result.stderr}</pre></details>" if result.stderr else ""}
+
+                <div style='margin-top: 10px; color: #6b7280; font-size: 12px;'>
+                    Executed: {result.timestamp.strftime("%Y-%m-%d %H:%M:%S")}
+                </div>
+            </div>
+            """
+
+        # Build script list for dropdown (all reviewed scripts)
+        script_list_html = load_pending_scripts()[0]
+
+        return script_list_html, cve_info_html, script_content, review_html, execution_html, script_id
+
+    except Exception as e:
+        logger.error(f"Failed to load script details: {e}", exc_info=True)
+        return "", f"Error loading script: {str(e)}", "", "", "", ""
+
+
+def handle_run_script(script_id: str) -> tuple:
+    """Handle script execution."""
+    try:
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+        from src.security.script_executor import create_script_executor
+
+        orchestrator = create_workflow_orchestrator()
+        executor = create_script_executor(default_timeout=60)
+
+        # Get script
+        script = orchestrator.get_script_status(script_id)
+        if not script:
+            return "❌ Script not found", ""
+
+        # Approve script first
+        if not orchestrator.handle_user_approved(script_id):
+            return "❌ Script approval failed. Review may be stale or script is unsafe.", ""
+
+        # Execute script
+        logger.info(f"Executing script {script_id}: {script.script_path}")
+        result = executor.execute_script(
+            script.script_path,
+            script_hash=script.script_hash,
+            verify_hash=True
+        )
+
+        # Update workflow with execution result
+        orchestrator.handle_execution_complete(
+            script_id=script_id,
+            success=result.success,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            duration=result.duration_seconds,
+            error=result.error_message
+        )
+
+        # Reload script details to show execution results
+        _, cve_info, script_content, review, execution, _ = load_script_details(script_id)
+
+        status_msg = f"✅ Script executed successfully (exit code: {result.exit_code})" if result.success else f"❌ Script execution failed (exit code: {result.exit_code})"
+
+        return status_msg, execution
+
+    except Exception as e:
+        logger.error(f"Script execution error: {e}", exc_info=True)
+        return f"❌ Execution error: {str(e)}", ""
+
+
+def handle_reject_script(script_id: str, reason: str) -> str:
+    """Handle script rejection."""
+    try:
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+
+        orchestrator = create_workflow_orchestrator()
+
+        if not reason:
+            reason = "User rejected without reason"
+
+        if orchestrator.handle_user_rejected(script_id, reason):
+            logger.info(f"Script {script_id} rejected: {reason}")
+            return f"✅ Script rejected: {reason}"
+        else:
+            return "❌ Failed to reject script"
+
+    except Exception as e:
+        logger.error(f"Script rejection error: {e}", exc_info=True)
+        return f"❌ Error: {str(e)}"
+
+
+def handle_download_script(script_id: str) -> str:
+    """Get script file path for download."""
+    try:
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+
+        orchestrator = create_workflow_orchestrator()
+        script = orchestrator.get_script_status(script_id)
+
+        if script and script.script_path and os.path.exists(script.script_path):
+            return script.script_path
+        else:
+            return ""
+
+    except Exception as e:
+        logger.error(f"Script download error: {e}", exc_info=True)
+        return ""
+
+
+def handle_retry_review(script_id: str) -> str:
+    """Retry LLM review for a script."""
+    try:
+        from src.agent.workflow_orchestrator import create_workflow_orchestrator
+
+        orchestrator = create_workflow_orchestrator()
+
+        if orchestrator.retry_review(script_id):
+            return "✅ Review queued. Please refresh in a moment."
+        else:
+            return "❌ Failed to queue review"
+
+    except Exception as e:
+        logger.error(f"Review retry error: {e}", exc_info=True)
+        return f"❌ Error: {str(e)}"
+
+
 def create_dashboard_tab() -> None:
     """Create the Dashboard/Alerts tab."""
     gr.Markdown(
@@ -1631,6 +1947,116 @@ def create_code_generation_tab() -> None:
         fn=handle_code_generation,
         inputs=[code_purpose, code_library, code_cve_id],
         outputs=[code_status, code_output, code_filename, code_reasoning],
+    )
+
+
+def create_script_manager_tab() -> None:
+    """Create the Script Manager tab (Phase 5)."""
+    gr.Markdown(
+        """
+    ### 📜 Script Manager
+    Review and execute security scripts that have been automatically generated and reviewed by the LLM.
+    """
+    )
+
+    # Hidden state for selected script ID
+    selected_script_id = gr.State(value="")
+
+    with gr.Row():
+        # Left column: Script list
+        with gr.Column(scale=1):
+            gr.Markdown("### Pending Scripts")
+            refresh_btn = gr.Button("🔄 Refresh", variant="secondary")
+            script_list_html = gr.HTML(label="Scripts")
+
+        # Right column: Script details
+        with gr.Column(scale=2):
+            # CVE Info
+            cve_info_html = gr.HTML(label="CVE Information")
+
+            # Tabs for different views
+            with gr.Tabs():
+                with gr.Tab("📄 Script"):
+                    script_code = gr.Code(
+                        label="Generated Script",
+                        language="python",
+                        lines=20,
+                        interactive=False
+                    )
+                    download_btn = gr.Button("📥 Download Script", variant="secondary")
+
+                with gr.Tab("🔍 Review"):
+                    review_html = gr.HTML(label="LLM Review Results")
+                    retry_review_btn = gr.Button("🔄 Re-review Script", variant="secondary")
+
+                with gr.Tab("▶️ Execute"):
+                    gr.Markdown("### Execution")
+                    gr.Markdown("⚠️ **Warning**: This will execute the script on your system. Make sure you've reviewed the script and LLM analysis first.")
+
+                    with gr.Row():
+                        run_btn = gr.Button("✅ Run Script", variant="primary", scale=2)
+                        reject_btn = gr.Button("❌ Reject Script", variant="stop", scale=1)
+
+                    execution_status = gr.Textbox(
+                        label="Status",
+                        interactive=False,
+                        show_label=True
+                    )
+
+                    rejection_reason = gr.Textbox(
+                        label="Rejection Reason (optional)",
+                        placeholder="Why are you rejecting this script?",
+                        lines=2
+                    )
+
+                    execution_output_html = gr.HTML(label="Execution Output")
+
+    # Event handlers
+
+    # Load scripts on tab open / refresh
+    def on_load():
+        return load_pending_scripts()
+
+    refresh_btn.click(
+        fn=on_load,
+        inputs=None,
+        outputs=[script_list_html, cve_info_html, script_code, review_html, execution_output_html, selected_script_id]
+    )
+
+    # When interface loads, load scripts
+    script_manager_tab_load = gr.on(
+        triggers=[refresh_btn.load],
+        fn=on_load,
+        inputs=None,
+        outputs=[script_list_html, cve_info_html, script_code, review_html, execution_output_html, selected_script_id]
+    )
+
+    # Run script
+    run_btn.click(
+        fn=handle_run_script,
+        inputs=[selected_script_id],
+        outputs=[execution_status, execution_output_html]
+    )
+
+    # Reject script
+    reject_btn.click(
+        fn=handle_reject_script,
+        inputs=[selected_script_id, rejection_reason],
+        outputs=[execution_status]
+    )
+
+    # Download script
+    download_btn.click(
+        fn=handle_download_script,
+        inputs=[selected_script_id],
+        outputs=[download_btn]
+    )
+
+    # Retry review
+    retry_review_btn.click(
+        fn=handle_retry_review,
+        inputs=[selected_script_id],
+        outputs=[execution_status]
     )
 
 
@@ -1838,6 +2264,9 @@ def create_interface() -> gr.Blocks:
 
             with gr.Tab("💻 Code Generation"):
                 create_code_generation_tab()
+
+            with gr.Tab("📜 Script Manager"):
+                create_script_manager_tab()
 
             with gr.Tab("💬 Security Chat"):
                 create_security_chat_tab()
