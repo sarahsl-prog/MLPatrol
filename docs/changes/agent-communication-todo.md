@@ -86,11 +86,14 @@ Implement automated agent-to-agent communication workflow:
 
 ## Phase 2: LLM Script Reviewer Agent
 
+**NOTE**: Use a separate LLM for script review, configured via `.env` file with dedicated environment variables (e.g., `REVIEWER_LLM_MODEL`, `REVIEWER_LLM_API_KEY`). This allows using a different model than the main agent.
+
 ### 2.1 Script Review Engine
 **File**: `src/agent/script_reviewer.py` (NEW)
 
 - [ ] Create `ScriptReviewer` class:
-  - Uses same LLM as main agent (Claude/GPT-4/Llama)
+  - Uses separate LLM configured via .env file
+  - Support for Claude, GPT-4, and local models
   - Specialized prompt for security code review
   - Temperature: 0.0 (deterministic analysis)
 
